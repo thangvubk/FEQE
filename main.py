@@ -121,7 +121,6 @@ def train():
                 [lr, sr, hr] = restore([lr, sr, hr])
                 update_tensorboard(epoch, writer, idx, valid_hr_imgs[idx], sr, hr)
                 val_psnr += compute_PSNR(hr, sr)
-                break
             
             val_psnr = val_psnr/len(valid_hr_imgs)
             if val_psnr > best_val_psnr:
