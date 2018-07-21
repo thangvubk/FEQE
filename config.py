@@ -19,7 +19,7 @@ config.TRAIN.hr_img_path = 'data/DIV2K_train_HR/'
 
 config.VALID = edict()
 ## test set location
-config.VALID.hr_img_path = 'data/DIV2K_valid_HR/'
+config.VALID.hr_img_path = 'data/DIV2K_valid_HR_16/'
 
 ## checkpoint
 config.checkpoint = 'checkpoint/SRGAN'

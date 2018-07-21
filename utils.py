@@ -31,7 +31,7 @@ def downsample_fn(x):
     return x
 
 def update_tensorboard(epoch, tb, img_idx, lr, sr, hr):
-    if epoch < 2:
+    if epoch == 1:
         tb.add_image(str(img_idx) + '_LR', lr, epoch)
         tb.add_image(str(img_idx) + '_HR', hr, epoch)
     tb.add_image(str(img_idx) + '_SR', sr, epoch)

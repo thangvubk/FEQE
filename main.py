@@ -119,7 +119,7 @@ def train():
                 sr = np.squeeze(sr_ex)
                 
                 [lr, sr, hr] = restore([lr, sr, hr])
-                update_tensorboard(epoch, writer, idx, valid_hr_imgs[idx], sr, hr)
+                update_tensorboard(epoch, writer, idx, lr, sr, hr)
                 val_psnr += compute_PSNR(hr, sr)
             
             val_psnr = val_psnr/len(valid_hr_imgs)
