@@ -20,6 +20,11 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('--mode', type=str, default='srgan', help='srgan, evaluate')
 parser.add_argument('--checkpoint', type=str, default='checkpoint')
+parser.add_argument('--sample_type', type=str, default='subpixel')
+parser.add_argument('--conv_type', type=str, default='default')
+parser.add_argument('--n_feats', type=int, default=16)
+parser.add_argument('--n_blocks', type=int, default=8)
+parser.add_argument('--n_groups', type=int, default=8)
 args = parser.parse_args()
 
 ###====================== HYPER-PARAMETERS ===========================###
@@ -50,7 +55,15 @@ def train():
     t_lr = tf.placeholder('float32', [None, None, None, 3], name='t_lr')
     t_hr = tf.placeholder('float32', [None, None, None, 3], name='t_hr')
 
-    t_sr = SRGAN_g(t_lr)
+
+    opt = {
+        'n_feats': args.n_feats,
+        'n_blocks': args.n_blocks,
+        'n_groups': args.n_groups,
+        'sample_type': args.sample_type,
+        'conv_type': args.conv_type
+    }
+    t_sr = SRGAN_g(t_lr, opt)
 
     total_parameters = 0
     for variable in tf.trainable_variables():
