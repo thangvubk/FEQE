@@ -21,9 +21,6 @@ config.VALID = edict()
 ## test set location
 config.VALID.hr_img_path = 'data/DIV2K_valid_HR_16/'
 
-## checkpoint
-config.checkpoint = 'checkpoint/SRGAN'
-
 def log_config(filename, cfg):
     with open(filename, 'w') as f:
         f.write("================================================\n")
