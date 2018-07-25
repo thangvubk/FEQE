@@ -1,15 +1,28 @@
 import tensorflow as tf
 import tensorlayer as tl
 from tensorlayer.prepro import *
-# from config import config, log_config
-#
-# img_path = config.TRAIN.img_path
-
+import random
 import scipy
 import numpy as np
 
 def rgb2y(rgb):
     return np.dot(rgb[...,:3], [65.738/256, 129.057/256, 25.064/256]) + 16
+
+def _augment(x):
+    """random flip and rotate aumentation""" 
+    aug_idx = random.randint(0,7)
+
+    if (aug_idx>>2)&1 == 1:
+        # transpose
+        x = x.transpose((1, 0, 2)).copy()
+    if (aug_idx>>1)&1 == 1:
+        # vertical flip
+        x = x[::-1, :, :].copy()
+    if aug_idx&1 == 1:
+        # horizontal flip
+        x = x[:, ::-1, :].copy()
+
+    return x
 
 def get_imgs_fn(file_name, path):
     """ Input an image path and name, return an image array """
@@ -18,6 +31,7 @@ def get_imgs_fn(file_name, path):
 
 def crop_sub_imgs_fn(x, is_random=True):
     x = crop(x, wrg=192, hrg=192, is_random=is_random)
+    x = _augment(x)
     return x
 
 def downsample_fn(x):
