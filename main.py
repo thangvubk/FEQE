@@ -65,7 +65,7 @@ def train():
         valid_hr_img_list = sorted(tl.files.load_file_list(path=args.valid_path, regx='.*.png', printable=False))
         train_hr_imgs = np.array(tl.vis.read_images(train_hr_img_list, path=args.train_path, n_threads=32))
         valid_hr_imgs = np.array(tl.vis.read_images(valid_hr_img_list, path=args.valid_path, n_threads=16))
-        valid_lr_imgs = tl.prepro.threading_data(valid_hr_imgs, fn=downsample_fn, interp='bicubic', scale=args.scale)
+        valid_lr_imgs = tl.prepro.threading_data(valid_hr_imgs, fn=downsample_fn, scale=args.scale)
         np.save(train_hr_npy, train_hr_imgs)
         np.save(valid_hr_npy, valid_hr_imgs)
         np.save(valid_lr_npy, valid_lr_imgs)
