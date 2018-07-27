@@ -44,6 +44,9 @@ def downsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel',
             x = conv(x, 3, n_feats, strides=(2, 2), act=tf.nn.relu, name='conv1_stride2')
             x = conv(x, n_feats, n_feats, strides=(2, 2), act=tf.nn.relu, name='conv2_stride2')
 
+        elif sample_type == 'none':
+            x = conv(x, 3, n_feats, act=tf.nn.relu, name='conv')
+
         else: 
             raise Exception('Unknown sample_type', sample_type)
     return x
@@ -62,6 +65,10 @@ def upsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel', n
         elif sample_type == 'deconv':
             x = DeConv2d(x, n_feats, n_feats, strides=(2, 2), act=tf.nn.relu, W_init=init(), b_init=init())
             x = DeConv2d(x, n_feats, n_feats, strides=(2, 2), act=tf.nn.relu, W_init=init(), b_init=init())
+
+        elif sample_type == 'none':
+            x = conv(x, n_feats, n_feats, act=tf.nn.relu, name='conv')
+
         else:
             raise Exception('Unknown sample_type', sample_type)
     return x
@@ -81,16 +88,37 @@ def res_group(x, n_feats, n_blocks, conv_type='default', name='res_group'):
         x = ElementwiseLayer([x, res], tf.add, name='add')
     return x
 
+def body(res, n_feats, n_groups, n_blocks, n_convs, body_type='resnet', conv_type='defaults', name='body'):
+    with tf.variable_scope(name):
+        if body_type == 'resnet':
+            for i in range(n_blocks):
+                res = res_block(res, n_feats, conv_type=conv_type, name='res_block%d' %i)
+        elif body_type == 'res_in_res':
+            for i in range(n_groups):
+                res = res_group(res, n_feats, n_blocks, conv_type=conv_type, name='res_group%d' %i)
+        elif body_type == 'conv':
+            for i in range(n_convs):
+                res = conv(res, n_feats, n_feats, conv_type=conv_type, name='conv%d' %i)
+        else:
+            raise Exception('Unknown body type', body_type)
+        
+        res = conv(res, n_feats, n_feats, act=None, conv_type=conv_type, name='res_lastconv')
+    return res
+
 def SRGAN_g(t_image, opt):
 
-    sample_type = opt['sample_type']
+    sample_type = opt['sample_type'] 
     conv_type   = opt['conv_type']
+    body_type   = opt['body_type']
+
     n_feats     = opt['n_feats']
     n_blocks    = opt['n_blocks']
     n_groups    = opt['n_groups']
+    n_convs     = opt['n_convs']
+
     scale       = opt['scale']
 
-    with tf.variable_scope("Generator") as vs:
+    with tf.variable_scope('Generator') as vs:
         # normalize input (0, 1) -> (-127.5, 127.5)
         t_image = (t_image - 0.5)*255
         x = InputLayer(t_image, name='in')
@@ -101,12 +129,7 @@ def SRGAN_g(t_image, opt):
         res = x
 
         #============Residual=================
-        #for i in range(n_groups):
-        #    res = res_group(res, n_feats, n_blocks, conv_type=conv_type, name='res_group%d' %i)
-        for i in range(n_blocks):
-            res = res_block(res, n_feats, conv_type=conv_type, name='res_block%d' %i)
-
-        res = conv(res, n_feats, n_feats, act=None, conv_type=conv_type, name='res_lastconv')
+        res = body(res, n_feats, n_groups, n_blocks, n_convs, body_type, conv_type)
         x = ElementwiseLayer([x, res], tf.add, name='add_res')
         
         #=============Upsample==================
@@ -114,7 +137,9 @@ def SRGAN_g(t_image, opt):
 
         x = conv(x, n_feats, 3, act=None, conv_type=conv_type, name='global_res')
         x = ElementwiseLayer([x, g_skip], tf.add, name='add_global_res')
+
         outputs = x.outputs/255 + 0.5
+        outputs = tf.clip_by_value(outputs, 0, 1)
         return outputs
 
 
