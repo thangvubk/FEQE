@@ -116,8 +116,6 @@ def train():
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
     sess.run(tf.global_variables_initializer())
 
-    train_writer = tf.summary.FileWriter(os.path.join(checkpoint, 'graph'), sess.graph)
-
     if args.phase == 'pretrain':
         body_saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'Generator/body'))
     else: 
@@ -127,7 +125,8 @@ def train():
             body_saver.restore(sess, args.pretrained_model)
 
     ###=========================Tensorboard=============================###
-    writer = SummaryWriter(checkpoint)
+    writer = SummaryWriter(os.path.join(checkpoint, 'result'))
+    tf.summary.FileWriter(os.path.join(checkpoint, 'graph'), sess.graph)
     best_score, best_epoch = -1, -1
 
     ###========================= Training ====================###
