@@ -74,10 +74,10 @@ def upsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel', n
         if sample_type == 'subpixel':
             assert scale == 2 or scale == 4
 
-            x = conv(x, n_feats, n_feats*4, act=None, conv_type=conv_type, name='conv1')
+            x = conv(x, n_feats, n_feats*4, (1, 1), act=None, conv_type=conv_type, name='conv1')
             x = SubpixelConv2d(x, scale=2, n_out_channel=None, name='pixelshuffle1')# /1
             if scale == 4:
-                x = conv(x, n_feats, n_feats*4, act=None, conv_type=conv_type, name='conv2')
+                x = conv(x, n_feats, 3*4, act=None, conv_type=conv_type, name='conv2')
                 x = SubpixelConv2d(x, scale=2, n_out_channel=None, name='pixelshuffle2')
 
         elif sample_type == 'deconv':
@@ -154,7 +154,7 @@ def SRGAN_g(t_bicubic, opt):
         #=============Upsample==================
         x = upsample(x, n_feats, scale, conv_type, sample_type)
 
-        x = conv(x, n_feats, 3, act=None, conv_type=conv_type, name='global_res')
+        #x = conv(x, n_feats, 3, act=None, conv_type=conv_type, name='global_res')
         x = ElementwiseLayer([x, g_skip], tf.add, name='add_global_res')
 
         #outputs = x.outputs/255 + 0.5
