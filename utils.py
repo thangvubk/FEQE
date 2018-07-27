@@ -34,10 +34,12 @@ def crop_sub_imgs_fn(x, is_random=True):
     x = _augment(x)
     return x
 
-def downsample_fn(x):
+def downsample_fn(x, scale=4):
     # Downsample then interpolate
     h, w = x.shape[0:2]
-    x = imresize(x, size=[h//4, w//4], interp='bicubic', mode=None)
+    hs, ws = h//scale, w//scale
+
+    x = imresize(x, size=[hs, ws], interp='bicubic', mode=None)
     x = imresize(x, size=[h, w], interp='bicubic', mode=None)
     return x
 
