@@ -33,7 +33,9 @@ class RestoreLayer(Layer):
 def conv(x, in_feats, out_feats, kernel_sizes=(3, 3), strides=(1, 1), act=None, conv_type='default', name='conv'):
     with tf.variable_scope(name):
         if conv_type == 'default':
-            x = Conv2d(x, out_feats, kernel_sizes, strides, act=act, W_init=init(in_feats), b_init=init(in_feats))
+            x = Conv2d(x, out_feats, kernel_sizes, strides, act=act, 
+                       W_init=init(in_feats, kernel_sizes[0]), 
+                       b_init=init(in_feats, kernel_sizes[0]))
 
         elif conv_type == 'depth_wise':
             x = DepthwiseConv2d(x, kernel_sizes, strides, act=tf.nn.relu, W_init=init(in_feats), 
@@ -52,10 +54,10 @@ def downsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel',
             assert scale == 2 or scale == 4
 
             # pretrain on scale 2 then finetune of scale 4
-            x = conv(x, 3, n_feats//4, act=None, conv_type=conv_type, name='conv1')
+            x = conv(x, 3, n_feats//4, (1, 1), act=None, conv_type=conv_type, name='conv1')
             x = DeSubpixelConv2d(x, 2, name='pixel_deshuffle1')
             if scale == 4:
-                x = conv(x, n_feats, n_feats//4, act=None, conv_type=conv_type, name='conv2')
+                x = conv(x, n_feats, n_feats//4, (1, 1), act=None, conv_type=conv_type, name='conv2')
                 x = DeSubpixelConv2d(x, 2, name='pixel_deshuffle2')
 
         elif sample_type == 'deconv':
@@ -77,7 +79,7 @@ def upsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel', n
             x = conv(x, n_feats, n_feats*4, (1, 1), act=None, conv_type=conv_type, name='conv1')
             x = SubpixelConv2d(x, scale=2, n_out_channel=None, name='pixelshuffle1')# /1
             if scale == 4:
-                x = conv(x, n_feats, 3*4, act=None, conv_type=conv_type, name='conv2')
+                x = conv(x, n_feats, 3*4, (1, 1), act=None, conv_type=conv_type, name='conv2')
                 x = SubpixelConv2d(x, scale=2, n_out_channel=None, name='pixelshuffle2')
 
         elif sample_type == 'deconv':
@@ -149,7 +151,7 @@ def SRGAN_g(t_bicubic, opt):
 
         #============Residual=================
         res = body(res, n_feats, n_groups, n_blocks, n_convs, body_type, conv_type)
-        x = ElementwiseLayer([x, res], tf.add, name='add_res')
+        x = res #ElementwiseLayer([x, res], tf.add, name='add_res')
         
         #=============Upsample==================
         x = upsample(x, n_feats, scale, conv_type, sample_type)
