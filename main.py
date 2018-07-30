@@ -6,7 +6,7 @@ from datetime import datetime
 import numpy as np
 from time import localtime, strftime
 import logging, scipy
-import utils2
+#import utils2
 import tensorflow as tf
 import tensorlayer as tl
 from model import SRGAN_g
@@ -18,13 +18,25 @@ import pdb
 import argparse
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--mode', type=str, default='srgan', help='srgan, evaluate')
 parser.add_argument('--checkpoint', type=str, default='checkpoint')
+parser.add_argument('--sample_type', type=str, default='subpixel')
+parser.add_argument('--conv_type', type=str, default='default')
+parser.add_argument('--body_type', type=str, default='resnet')
+parser.add_argument('--n_feats', type=int, default=16)
+parser.add_argument('--n_blocks', type=int, default=32)
+parser.add_argument('--n_groups', type=int, default=0)
+parser.add_argument('--n_convs', type=int, default=0)
+parser.add_argument('--scale', type=int, default=4)
+parser.add_argument('--batch_size', type=int, default=16)
+parser.add_argument('--eval_every', type=int, default=1)
+parser.add_argument('--pretrained_model', type=str, default='')
+parser.add_argument('--train_path', type=str, default='./data/DIV2K_train_HR')
+parser.add_argument('--valid_path', type=str, default='./data/DIV2K_valid_HR_9')
+parser.add_argument('--phase', type=str, default='train')
 args = parser.parse_args()
 
 ###====================== HYPER-PARAMETERS ===========================###
-## Adam
-batch_size = config.TRAIN.batch_size
+batch_size = args.batch_size
 lr_init = config.TRAIN.lr_init
 beta1 = config.TRAIN.beta1
 ## adversarial learning (SRGAN)
@@ -32,6 +44,12 @@ n_epoch = config.TRAIN.n_epoch
 lr_decay = config.TRAIN.lr_decay
 decay_every = config.TRAIN.decay_every
 checkpoint = args.checkpoint
+
+def log10(x):
+    numerator = tf.log(x)
+    denominator = tf.log(tf.constant(10, dtype=numerator.dtype))
+    return numerator / denominator
+
 
 def train():
     ## create folders to save trained model
@@ -70,7 +88,17 @@ def train():
     t_lq = tf.placeholder('float32', [None, None, None, 3], name='t_lq')
     t_hq = tf.placeholder('float32', [None, None, None, 3], name='t_hq')
 
-    t_sr = SRGAN_g(t_lq)
+    opt = {
+        'n_feats': args.n_feats,
+        'n_blocks': args.n_blocks,
+        'n_groups': args.n_groups,
+        'n_convs': args.n_convs,
+        'sample_type': args.sample_type,
+        'conv_type': args.conv_type,
+        'body_type': args.body_type,
+        'scale': args.scale
+    }
+    t_sr = SRGAN_g(t_lq, opt)
 
     total_parameters = 0
     for variable in tf.trainable_variables():
@@ -89,11 +117,18 @@ def train():
     #loss_2 = tf.reduce_sum(tf.pow(dslr_blur - enhanced_blur,2))/(2*batch_size)
     #loss = loss_1 + loss_2*0.5
 
-    g_vars = tl.layers.get_variables_with_name('SRGAN_g', True, True)
+    g_vars = tl.layers.get_variables_with_name('Generator', True, True)
 
     with tf.variable_scope('learning_rate'):
         lr_v = tf.Variable(lr_init, trainable=False)
     g_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(loss, var_list=g_vars)
+
+    #=============PSNR and SSIM================================================
+    #t_psnr = tf.image.psnr(t_lq, t_hq, max_val=1.0)
+    loss_mse = tf.reduce_sum(tf.pow(t_hq - t_sr, 2))/(100*100*3)/batch_size
+    t_psnr = 20 * log10(1.0 / tf.sqrt(loss_mse))
+
+    #t_ssim = tf.image.ssim_multiscale(t_sr, t_hq, max_val=1.0)  
 
     ###========================== RESTORE MODEL =============================###
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
@@ -102,8 +137,9 @@ def train():
     #train_writer = tf.summary.FileWriter('test_tb', sess.graph)
 
     ###=========================Tensorboard=============================###
-    writer = SummaryWriter(checkpoint)
-    best_val_psnr, best_epoch = -1, -1
+    writer = SummaryWriter(os.path.join(checkpoint, 'result'))
+    tf.summary.FileWriter(os.path.join(checkpoint, 'graph'), sess.graph)
+    best_psnr, best_epoch = -1, -1
 
     ###========================= Training ====================###
     for epoch in range(1, n_epoch + 1):
@@ -147,37 +183,44 @@ def train():
 
         #=============Valdating==================#
         running_loss = 0
-        if (epoch % 1 == 0):
+        if (epoch % args.eval_every == 0):
             print('Validating...')
             val_psnr = 0
-            for idx in tqdm(range(len(valid_hq_imgs))):
-                hq = valid_hq_imgs[idx]
-                lq = valid_lq_imgs[idx]
+            num_batches = len(valid_hq_imgs)//batch_size
+            for idx in tqdm(range(num_batches)):
+                #if idx == 100: break
+                hq = valid_hq_imgs[idx*batch_size: (idx+1)*batch_size]
+                lq = valid_lq_imgs[idx*batch_size: (idx+1)*batch_size]
 
                 [lq, hq] = normalize([lq, hq])
 
-                hq_ex = np.expand_dims(hq, axis=0)
-                lq_ex = np.expand_dims(lq, axis=0)
+                #hq_ex = np.expand_dims(hq, axis=0)
+                #lq_ex = np.expand_dims(lq, axis=0)
 
-                loss_val, sr_ex = sess.run([loss, t_sr], {t_lq: lq_ex, t_hq: hq_ex})
-                sr = np.squeeze(sr_ex)
+                psnr, loss_val, sr = sess.run([t_psnr, loss, t_sr], {t_lq: lq, t_hq: hq})
+                #print(idx, psnr)
+                #sr = np.squeeze(sr_ex)
 
-                [lq, sr, hq] = restore([lq, sr, hq])
-                update_tensorboard(epoch, writer, idx, lq, sr, hq)
-                val_psnr += compute_PSNR(hq, sr)
+                if idx == 0:
+                    for i in range(10):
+                        [lq_i, sr_i, hq_i] = [lq[i], sr[i], hq[i]]
+                        [lq_i, sr_i, hq_i] = restore([lq_i, sr_i, hq_i])
+                        update_tensorboard(epoch, writer, i, lq_i, sr_i, hq_i)
+
+                val_psnr += psnr #compute_PSNR(hr, sr)
                 running_loss += loss_val
 
 
-            val_psnr = val_psnr/len(valid_hq_imgs)
-            avr_loss = running_loss/len(valid_hq_imgs)
-            if val_psnr > best_val_psnr:
-                best_val_psnr = val_psnr
+            val_psnr = val_psnr/num_batches
+            avr_loss = running_loss/num_batches
+            print('fasdf', val_psnr)
+            if val_psnr > best_psnr:
+                best_psnr = val_psnr
                 best_epoch = epoch
                 print('Saving new best model')
                 saver.save(sess, os.path.join(checkpoint, 'model.ckpt'))
-            print('Validate PSNR: %.4fdB. Best: %.4fdB at epoch %d' %(val_psnr, best_val_psnr, best_epoch))
+            print('Validate psnr: %.4fdB. Best: %.4fdB at epoch %d' %(val_psnr, best_psnr, best_epoch))
             writer.add_scalar('Validate PSNR', val_psnr, epoch)
-            writer.add_scalar('Best val PSNR', best_val_psnr, epoch)
             writer.add_scalar('Validation Loss', avr_loss, epoch)
 
 if __name__ == '__main__':
