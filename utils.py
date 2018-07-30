@@ -17,7 +17,7 @@ def get_imgs_fn(file_name, path):
     return scipy.misc.imread(path + file_name, mode='RGB')
 
 def crop_sub_imgs_fn(x, is_random=True):
-    x = crop(x, wrg=192, hrg=192, is_random=is_random)
+    #x = crop(x, wrg=192, hrg=192, is_random=is_random)
     return x
 
 def downsample_fn(x):
@@ -28,10 +28,10 @@ def downsample_fn(x):
     return x
 
 def update_tensorboard(epoch, tb, img_idx, lr, sr, hr):
-    if epoch == 20: #first validation
-        tb.add_image(str(img_idx) + '_LR', lr, 0)
-        tb.add_image(str(img_idx) + '_HR', hr, 0)
-    tb.add_image(str(img_idx) + '_SR', sr, epoch)
+    if epoch == 1: #first validation
+        tb.add_image(str(img_idx) + '_INP', lr, 0)
+        tb.add_image(str(img_idx) + '_LBL', hr, 0)
+    tb.add_image(str(img_idx) + '_OUT', sr, epoch)
 
 def compute_PSNR(out, lbl):
     out = rgb2y(out)

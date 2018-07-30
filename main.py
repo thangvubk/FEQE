@@ -6,7 +6,7 @@ from datetime import datetime
 import numpy as np
 from time import localtime, strftime
 import logging, scipy
-
+import utils2
 import tensorflow as tf
 import tensorlayer as tl
 from model import SRGAN_g
@@ -38,19 +38,39 @@ def train():
     tl.files.exists_or_mkdir(checkpoint)
 
     ###====================== PRE-LOAD DATA ===========================###
-    train_hr_img_list = sorted(tl.files.load_file_list(path=config.TRAIN.hr_img_path, regx='.*.png', printable=False))
-    valid_hr_img_list = sorted(tl.files.load_file_list(path=config.VALID.hr_img_path, regx='.*.png', printable=False))
-    train_hr_imgs = tl.vis.read_images(train_hr_img_list, path=config.TRAIN.hr_img_path, n_threads=32)
-    valid_hr_imgs = tl.vis.read_images(valid_hr_img_list, path=config.VALID.hr_img_path, n_threads=16)
-    valid_lr_imgs = tl.prepro.threading_data(valid_hr_imgs, fn=downsample_fn)
+    train_hq_npy = os.path.join(config.TRAIN.hq_img_path, 'train_hq.npy')
+    train_lq_npy = os.path.join(config.TRAIN.lq_img_path, 'train_lq.npy')
+    valid_hq_npy = os.path.join(config.VALID.hq_img_path, 'valid_hq.npy')
+    valid_lq_npy = os.path.join(config.VALID.lq_img_path, 'valid_lq.npy')
 
- 
+    if os.path.exists(train_hq_npy) and os.path.exists(train_lq_npy) and os.path.exists(valid_hq_npy) and os.path.exists(valid_lq_npy):
+        train_hq_imgs = np.load(train_hq_npy)
+        train_lq_imgs = np.load(train_lq_npy)
+        valid_hq_imgs = np.load(valid_hq_npy)
+        valid_lq_imgs = np.load(valid_lq_npy)
+    else:
+        print('Data bins is not created. Creating data bins')
+        train_hq_img_list = sorted(tl.files.load_file_list(path=config.TRAIN.hq_img_path, regx='.*.jpg', printable=False))
+        train_lq_img_list = sorted(tl.files.load_file_list(path=config.TRAIN.lq_img_path, regx='.*.jpg', printable=False))
+        valid_hq_img_list = sorted(tl.files.load_file_list(path=config.VALID.hq_img_path, regx='.*.jpg', printable=False))
+        valid_lq_img_list = sorted(tl.files.load_file_list(path=config.VALID.lq_img_path, regx='.*.jpg', printable=False))
+
+        train_hq_imgs = np.array(tl.vis.read_images(train_hq_img_list, path=config.TRAIN.hq_img_path, n_threads=32))
+        train_lq_imgs = np.array(tl.vis.read_images(train_lq_img_list, path=config.TRAIN.lq_img_path, n_threads=32))
+        valid_hq_imgs = np.array(tl.vis.read_images(valid_hq_img_list, path=config.VALID.hq_img_path, n_threads=16))
+        valid_lq_imgs = np.array(tl.vis.read_images(valid_lq_img_list, path=config.VALID.lq_img_path, n_threads=16))
+
+        np.save(train_hq_npy, train_hq_imgs)
+        np.save(train_lq_npy, train_lq_imgs)
+        np.save(valid_hq_npy, valid_hq_imgs)
+        np.save(valid_lq_npy, valid_lq_imgs)
+
     ###========================== DEFINE MODEL ============================###
     ## train inference
-    t_lr = tf.placeholder('float32', [None, None, None, 3], name='t_lr')
-    t_hr = tf.placeholder('float32', [None, None, None, 3], name='t_hr')
+    t_lq = tf.placeholder('float32', [None, None, None, 3], name='t_lq')
+    t_hq = tf.placeholder('float32', [None, None, None, 3], name='t_hq')
 
-    t_sr = SRGAN_g(t_lr)
+    t_sr = SRGAN_g(t_lq)
 
     total_parameters = 0
     for variable in tf.trainable_variables():
@@ -61,7 +81,13 @@ def train():
     print("Total number of trainable parameters: %d" % total_parameters)
 
     ####========================== DEFINE TRAIN OPS ==========================###
-    loss = tl.cost.absolute_difference_error(t_sr, t_hr, is_mean=True)
+    loss = tl.cost.absolute_difference_error(t_sr, t_hq, is_mean=True)
+    #loss_1 = tl.cost.absolute_difference_error(t_sr, t_hq, is_mean=True)
+    #color loss (3 below lines)
+    #enhanced_blur = utils2.blur(t_sr)
+    #dslr_blur = utils2.blur(t_lq)
+    #loss_2 = tf.reduce_sum(tf.pow(dslr_blur - enhanced_blur,2))/(2*batch_size)
+    #loss = loss_1 + loss_2*0.5
 
     g_vars = tl.layers.get_variables_with_name('SRGAN_g', True, True)
 
@@ -81,6 +107,7 @@ def train():
 
     ###========================= Training ====================###
     for epoch in range(1, n_epoch + 1):
+        ## array_imgs = np.random.permutation(160471)
         ## update learning rate
         if epoch == 1:
             sess.run(tf.assign(lr_v, lr_init))
@@ -93,49 +120,56 @@ def train():
             print(log)
 
         epoch_time = time.time()
-        num_batches = len(train_hr_imgs)//batch_size
+        num_batches = len(train_hq_imgs)//batch_size
         running_loss = 0
 
+        #==========Ids for shuffling====================
+        ids = np.random.permutation(len(train_hq_imgs))
+
         for idx in tqdm(range(num_batches)):
-            hr = tl.prepro.threading_data(train_hr_imgs[idx:idx + batch_size], fn=crop_sub_imgs_fn, is_random=True)
-            lr = tl.prepro.threading_data(hr, fn=downsample_fn)
-            [lr, hr] = normalize([lr, hr])
+            #hr = tl.prepro.threading_data(train_hr_imgs[idx:idx + batch_size], fn=crop_sub_imgs_fn, is_random=True)
+            #lr = tl.prepro.threading_data(hr, fn=downsample_fn)
+            hq = train_hq_imgs[ids[idx*batch_size:(idx+1)*batch_size]] ### use random array
+            lq = train_lq_imgs[ids[idx*batch_size:(idx+1)*batch_size]]
+            ###check the type of hq,lq, delete later
+            #print("Type hq and lq: {} and {}".format(type(hq),type(lq)))
+
+            [lq, hq] = normalize([lq, hq])
 
             ## update G
-            loss_val, _ = sess.run([loss, g_optim], {t_lr: lr, t_hr: hr})
+            loss_val, _ = sess.run([loss, g_optim], {t_lq: lq, t_hq: hq})
             running_loss += loss_val
         log = "[*] Epoch: [%2d/%2d], loss: %.8f" % (epoch, n_epoch, running_loss/num_batches)
         print(log)
 
         writer.add_scalar('Loss', running_loss/num_batches, epoch)
-        
+
 
         #=============Valdating==================#
         running_loss = 0
-        if (epoch % 20 == 0):
+        if (epoch % 1 == 0):
             print('Validating...')
             val_psnr = 0
-            for idx in tqdm(range(len(valid_hr_imgs))):
+            for idx in tqdm(range(len(valid_hq_imgs))):
+                hq = valid_hq_imgs[idx]
+                lq = valid_lq_imgs[idx]
 
-                hr = valid_hr_imgs[idx]
-                lr = valid_lr_imgs[idx]
+                [lq, hq] = normalize([lq, hq])
 
-                [lr, hr] = normalize([lr, hr])
-                
-                hr_ex = np.expand_dims(hr, axis=0)
-                lr_ex = np.expand_dims(lr, axis=0)
-                
-                loss_val, sr_ex = sess.run([loss, t_sr], {t_lr: lr_ex, t_hr: hr_ex})
+                hq_ex = np.expand_dims(hq, axis=0)
+                lq_ex = np.expand_dims(lq, axis=0)
+
+                loss_val, sr_ex = sess.run([loss, t_sr], {t_lq: lq_ex, t_hq: hq_ex})
                 sr = np.squeeze(sr_ex)
-                
-                [lr, sr, hr] = restore([lr, sr, hr])
-                update_tensorboard(epoch, writer, idx, lr, sr, hr)
-                val_psnr += compute_PSNR(hr, sr)
+
+                [lq, sr, hq] = restore([lq, sr, hq])
+                update_tensorboard(epoch, writer, idx, lq, sr, hq)
+                val_psnr += compute_PSNR(hq, sr)
                 running_loss += loss_val
 
-            
-            val_psnr = val_psnr/len(valid_hr_imgs)
-            avr_loss = running_loss/len(valid_hr_imgs)
+
+            val_psnr = val_psnr/len(valid_hq_imgs)
+            avr_loss = running_loss/len(valid_hq_imgs)
             if val_psnr > best_val_psnr:
                 best_val_psnr = val_psnr
                 best_epoch = epoch
