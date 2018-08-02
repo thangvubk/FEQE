@@ -1,16 +1,40 @@
 #! /usr/bin/python
-# -*- coding: utf8 -*-
 
+from pixel_deshuffle import DeSubpixelConv2d
+from tensorlayer.layers import *
 import time
 import tensorflow as tf
-import tensorlayer as tl
-from tensorlayer.layers import *
+import tensorflow.contrib.layers as ly
 import math
-from pixel_deshuffle import DeSubpixelConv2d
+from lib.deform_conv_op import deform_conv_op
 
 def init(in_feats, kernel_size=3):
     std = 1./math.sqrt(in_feats*(kernel_size**2))
     return tf.random_uniform_initializer(-std, std)
+
+def lrelu(x, leak=0.3, name="lrelu"):
+    with tf.variable_scope(name):
+        f1 = 0.5 * (1 + leak)
+        f2 = 0.5 * (1 - leak)
+        return f1 * x + f2 * abs(x)
+
+class NormalizeLayer(Layer):
+    def __init__(self, prev_layer, mean, std, name='normalize_layer'):
+        Layer.__init__(self, prev_layer=prev_layer, name=name)
+
+        self.inputs = prev_layer.outputs
+        self.outputs = (self.inputs - mean)*std
+
+        self.all_layers.append(self.outputs)
+
+class RestoreLayer(Layer):
+    def __init__(self,prev_layer, mean, std, name='restore_layer'):
+        Layer.__init__(self, prev_layer=prev_layer, name=name)
+
+        self.inputs = prev_layer.outputs
+        self.outputs = (self.inputs/std) + mean
+
+        self.all_layers.append(self.outputs)
 
 def conv(x, in_feats, out_feats, kernel_sizes=(3, 3), strides=(1, 1), act=None, conv_type='default', name='conv'):
     with tf.variable_scope(name):
@@ -23,7 +47,25 @@ def conv(x, in_feats, out_feats, kernel_sizes=(3, 3), strides=(1, 1), act=None, 
             x = Conv2d(x, out_feats, (1, 1), (1, 1), act=act, 
                        W_init=init(in_feats, kernel_sizes[0]), 
                        b_init=init(in_feats, kernel_sizes[0]), name='conv')
+        elif conv_type == 'deformable_conv':
+                img_shape = x.outputs.shape.as_list()
+                assert (len(img_shape) == 4)
+                _, _, _, C = img_shape
+                with tf.variable_scope('deform' + '_' + name):
+                    # offset = ly.conv2d(x, num_outputs=2 * kernel_size ** 2, kernel_size=3, stride=2, activation_fn=None, data_format='NCHW')
+                    offset = Conv2d(x, num_outputs=2 * kernel_sizes ** 2, kernel_size=3, stride=2, activation_fn=None,
+                                    W_init=init(in_feats), b_init=init(in_feats))
 
+                    kernel = tf.get_variable(name='d_kernel', shape=(out_feats, C, kernel_sizes, kernel_sizes),
+                                             initializer=tf.random_normal_initializer(0, 0.02))
+                    res = deform_conv_op(x, filter=kernel, offset=offset, rates=[1, 1, 1, 1], padding='SAME',
+                                         strides=[1, 1, strides, strides], num_groups=1, deformable_group=1)
+                    # if normalizer_fn is not None:
+                    #     res = normalizer_fn(res)
+                    # if activation_fn is not None:
+                    #     res = activation_fn(res)
+
+                return res
         else:
             raise Exception('Unknown conv type', conv_type)
     return x
@@ -34,10 +76,10 @@ def downsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel',
             assert scale == 2 or scale == 4
 
             # pretrain on scale 2 then finetune of scale 4
-            x = conv(x, 3, n_feats//4, act=None, conv_type=conv_type, name='conv1')
+            x = conv(x, 3, n_feats//4, (1, 1), act=None, conv_type=conv_type, name='conv1')
             x = DeSubpixelConv2d(x, 2, name='pixel_deshuffle1')
             if scale == 4:
-                x = conv(x, n_feats, n_feats//4, act=None, conv_type=conv_type, name='conv2')
+                x = conv(x, n_feats, n_feats//4, (1, 1), act=None, conv_type=conv_type, name='conv2')
                 x = DeSubpixelConv2d(x, 2, name='pixel_deshuffle2')
 
         elif sample_type == 'deconv':
@@ -56,10 +98,10 @@ def upsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel', n
         if sample_type == 'subpixel':
             assert scale == 2 or scale == 4
 
-            x = conv(x, n_feats, n_feats*4, act=None, conv_type=conv_type, name='conv1')
+            x = conv(x, n_feats, n_feats*4, (1, 1), act=None, conv_type=conv_type, name='conv1')
             x = SubpixelConv2d(x, scale=2, n_out_channel=None, name='pixelshuffle1')# /1
             if scale == 4:
-                x = conv(x, n_feats, n_feats*4, act=None, conv_type=conv_type, name='conv2')
+                x = conv(x, n_feats, 3*4, (1, 1), act=None, conv_type=conv_type, name='conv2')
                 x = SubpixelConv2d(x, scale=2, n_out_channel=None, name='pixelshuffle2')
 
         elif sample_type == 'deconv':
@@ -105,7 +147,7 @@ def body(res, n_feats, n_groups, n_blocks, n_convs, body_type='resnet', conv_typ
         res = conv(res, n_feats, n_feats, act=None, conv_type=conv_type, name='res_lastconv')
     return res
 
-def SRGAN_g(t_image, opt):
+def SRGAN_g(t_bicubic, opt):
 
     sample_type = opt['sample_type'] 
     conv_type   = opt['conv_type']
@@ -120,8 +162,9 @@ def SRGAN_g(t_image, opt):
 
     with tf.variable_scope('Generator') as vs:
         # normalize input (0, 1) -> (-127.5, 127.5)
-        t_image = (t_image - 0.5)*255
-        x = InputLayer(t_image, name='in')
+        #t_image = (t_image - 0.5)*255
+        x = InputLayer(t_bicubic, name='in')
+        x = NormalizeLayer(x, 0.5, 255)
         g_skip = x
 
         #===========Downsample==============
@@ -135,11 +178,12 @@ def SRGAN_g(t_image, opt):
         #=============Upsample==================
         x = upsample(x, n_feats, scale, conv_type, sample_type)
 
-        x = conv(x, n_feats, 3, act=None, conv_type=conv_type, name='global_res')
+        #x = conv(x, n_feats, 3, act=None, conv_type=conv_type, name='global_res')
         x = ElementwiseLayer([x, g_skip], tf.add, name='add_global_res')
 
-        outputs = x.outputs/255 + 0.5
-        outputs = tf.clip_by_value(outputs, 0, 1)
+        #outputs = x.outputs/255 + 0.5
+        x = RestoreLayer(x, 0.5, 255)
+        outputs = tf.clip_by_value(x.outputs, 0, 1)
         return outputs
 
 

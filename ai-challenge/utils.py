@@ -5,8 +5,9 @@ import numpy as np
 import threading
 import psutil
 import time
-import sys
 import os
+from tensorflow.python.client import timeline
+
 
 min_ram = 0
 max_ram = 0
@@ -52,6 +53,77 @@ def check_ram(process):
 
 
 def compute_running_time(task, model_file, img_dir):
+
+    global process
+    global stop_thread
+    NUM_VAL_IMAGES = 4
+
+    config = tf.ConfigProto(device_count={'GPU': 0})
+    process = psutil.Process(os.getpid())
+    avg_time = 0
+    max_consumed_RAM = 0
+
+    with tf.Session(config=config) as sess:
+
+        with tf.gfile.FastGFile(model_file, 'rb') as f:
+
+            graph_def = tf.GraphDef()
+            graph_def.ParseFromString(f.read())
+            tf.import_graph_def(graph_def, name='')
+
+            x_ = sess.graph.get_tensor_by_name('input:0')
+            out_ = sess.graph.get_tensor_by_name('output:0')
+
+        # Open TensorFlow ckpt
+        for i in range(NUM_VAL_IMAGES):
+
+            print("\rImage " + str(i + 1) + " / " + str(NUM_VAL_IMAGES), end='')
+
+            if task == "superres":
+                image = misc.imresize(misc.imread(img_dir + str(i) + ".png"), 0.25, interp="bicubic")
+                image = misc.imresize(image, 4.0, interp="bicubic")
+            else:
+                image = misc.imread(img_dir + str(i) + ".png")
+
+            image = np.reshape(image, [1, image.shape[0], image.shape[1], 3]) / 255
+
+            min_ram = process.memory_info().rss / 1048576.0
+            stop_thread = False
+
+            ram_thread = threading.Thread(target=check_ram, args=[process])
+            ram_thread.start()
+
+            time_start = int(round(time.time() * 1000))
+
+            # options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+            # run_metadata = tf.RunMetadata()
+            # output = sess.run(out_, feed_dict={x_: image}, options=options, run_metadata=run_metadata)
+            output = sess.run(out_, feed_dict={x_: image})
+
+            # output = sess.run(out_, feed_dict={x_: image})
+
+            time_finish = int(round(time.time() * 1000))
+            stop_thread = True
+
+            # Create timeline obj and write to json file
+            # fetched_timeline = timeline.Timeline(run_metadata.step_stats)
+            # chrome_trace = fetched_timeline.generate_chrome_trace_format()
+            # with open('timeline_testmode.json', 'w') as f:
+            #     f.write(chrome_trace)
+
+            if i > 1:
+                avg_time += (time_finish - time_start) / (NUM_VAL_IMAGES - 2)
+
+            if max_ram - min_ram > max_consumed_RAM:
+                max_consumed_RAM = max_ram - min_ram
+
+    sess.close()
+
+    print("\r\r\r")
+    return int(avg_time), int(max_consumed_RAM)
+
+
+def compute_running_time_basedline(task, model_file, img_dir):
 
     global process
     global stop_thread

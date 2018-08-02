@@ -1,5 +1,4 @@
 #! /usr/bin/python
-# -*- coding: utf8 -*-
 
 import os, time, pickle, random, time
 from datetime import datetime
@@ -16,12 +15,18 @@ from tensorboardX import SummaryWriter
 from tqdm import tqdm
 import pdb
 import argparse
+
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"]="5"
+
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--checkpoint', type=str, default='checkpoint')
+parser.add_argument('--checkpoint', type=str, default='checkpoint/default_model')
 parser.add_argument('--sample_type', type=str, default='subpixel')
-parser.add_argument('--conv_type', type=str, default='default')
-parser.add_argument('--body_type', type=str, default='resnet')
+# parser.add_argument('--conv_type', type=str, default='default')
+# parser.add_argument('--body_type', type=str, default='resnet')
+parser.add_argument('--body_type', type=str, default='conv')
+parser.add_argument('--conv_type', type=str, default='deformable_conv')
 parser.add_argument('--n_feats', type=int, default=16)
 parser.add_argument('--n_blocks', type=int, default=32)
 parser.add_argument('--n_groups', type=int, default=0)
@@ -31,7 +36,8 @@ parser.add_argument('--batch_size', type=int, default=16)
 parser.add_argument('--eval_every', type=int, default=20)
 parser.add_argument('--pretrained_model', type=str, default='')
 parser.add_argument('--train_path', type=str, default='./data/DIV2K_train_HR')
-parser.add_argument('--valid_path', type=str, default='./data/DIV2K_valid_HR_9')
+# parser.add_argument('--valid_path', type=str, default='./data/DIV2K_valid_HR_1')
+parser.add_argument('--valid_path', type=str, default='./data/DIV2K_valid_HR')
 parser.add_argument('--phase', type=str, default='train')
 args = parser.parse_args()
 
@@ -45,6 +51,11 @@ n_epoch = config.TRAIN.n_epoch
 lr_decay = config.TRAIN.lr_decay
 decay_every = config.TRAIN.decay_every
 checkpoint = args.checkpoint
+
+print('--------- YOUR CONFIGURATION ---------')
+for arg in vars(args):
+    print("%15s: %s" %(str(arg), str(getattr(args, arg))))
+print("")
 
 def train():
     ## create folders to save trained model
@@ -105,12 +116,13 @@ def train():
 
     with tf.variable_scope('learning_rate'):
         lr_v = tf.Variable(lr_init, trainable=False)
+
     g_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(t_loss, var_list=g_vars)
 
 
     #=============PSNR and SSIM================================================
     t_psnr = tf.image.psnr(t_sr, t_hr, max_val=1.0)
-    t_ssim = tf.image.ssim_multiscale(t_sr, t_hr, max_val=1.0) 
+    t_ssim = tf.image.ssim_multiscale(t_sr, t_hr, max_val=1.0)
 
     ###========================== RESTORE MODEL =============================###
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
@@ -128,6 +140,7 @@ def train():
     writer = SummaryWriter(os.path.join(checkpoint, 'result'))
     tf.summary.FileWriter(os.path.join(checkpoint, 'graph'), sess.graph)
     best_score, best_epoch = -1, -1
+
 
     ###========================= Training ====================###
     for epoch in range(1, n_epoch + 1):
@@ -157,6 +170,8 @@ def train():
             ## update G
             loss, _ = sess.run([t_loss, g_optim], {t_lr: lr, t_hr: hr})
             running_loss += loss
+
+
         log = "[*] Epoch: [%2d/%2d], loss: %.8f" % (epoch, n_epoch, running_loss/num_batches)
         print(log)
 
