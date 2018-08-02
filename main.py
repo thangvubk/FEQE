@@ -26,8 +26,9 @@ parser.add_argument('--n_feats', type=int, default=16)
 parser.add_argument('--n_blocks', type=int, default=32)
 parser.add_argument('--n_groups', type=int, default=0)
 parser.add_argument('--n_convs', type=int, default=0)
+parser.add_argument('--n_squeezes', type=int, default=0)
 parser.add_argument('--scale', type=int, default=4)
-parser.add_argument('--batch_size', type=int, default=16)
+parser.add_argument('--batch_size', type=int, default=8)
 parser.add_argument('--eval_every', type=int, default=20)
 parser.add_argument('--pretrained_model', type=str, default='')
 parser.add_argument('--train_path', type=str, default='./data/DIV2K_train_HR')
@@ -82,6 +83,7 @@ def train():
         'n_blocks': args.n_blocks,
         'n_groups': args.n_groups,
         'n_convs': args.n_convs,
+        'n_squeezes': args.n_squeezes,
         'sample_type': args.sample_type,
         'conv_type': args.conv_type,
         'body_type': args.body_type,
