@@ -5,20 +5,18 @@ import os, time, pickle, random, time
 from datetime import datetime
 import numpy as np
 from time import localtime, strftime
-import logging, scipy
-
-import tensorflow as tf
-import tensorlayer as tl
-from model import SRGAN_g
+from model import *
 from utils import *
 from config import config, log_config
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
-import pdb
 import argparse
+
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--checkpoint', type=str, default='checkpoint')
+parser.add_argument('--vgg_dir', type=str, default='vgg_pretrained/imagenet-vgg-verydeep-19.mat')
 parser.add_argument('--sample_type', type=str, default='subpixel')
 parser.add_argument('--conv_type', type=str, default='default')
 parser.add_argument('--body_type', type=str, default='resnet')
@@ -55,7 +53,7 @@ def train():
     train_hr_npy = os.path.join(args.train_path, 'train_hr.npy')
     valid_hr_npy = os.path.join(args.valid_path, 'valid_hr.npy')
     valid_lr_npy = os.path.join(args.valid_path, 'X{}_valid_lr.npy'.format(args.scale))
-    
+
     if os.path.exists(train_hr_npy) and os.path.exists(valid_hr_npy) and os.path.exists(valid_lr_npy):
         train_hr_imgs = np.load(train_hr_npy)
         valid_hr_imgs = np.load(valid_hr_npy)
@@ -71,12 +69,10 @@ def train():
         np.save(valid_hr_npy, valid_hr_imgs)
         np.save(valid_lr_npy, valid_lr_imgs)
 
- 
     ###========================== DEFINE MODEL ============================###
     ## train inference
     t_lr = tf.placeholder('float32', [None, None, None, 3], name='t_lr')
     t_hr = tf.placeholder('float32', [None, None, None, 3], name='t_hr')
-
 
     opt = {
         'n_feats': args.n_feats,
@@ -89,9 +85,22 @@ def train():
         'body_type': args.body_type,
         'scale': args.scale
     }
+
     t_sr = SRGAN_g(t_lr, opt)
+    _, prob_real = SRGAN_d(t_hr, is_train=True, reuse=False)
+    _, prob_fake = SRGAN_d(t_sr, is_train=True, reuse=True)
 
+    ## Load VGG net
+    vgg_dir = args.vgg_dir
+    if not os.path.exists(vgg_dir):
+        print('Not found vgg19 pretrained.')
+        return
 
+    CONTENT_LAYER = 'relu5_4'
+    sr_vgg = vgg19(vgg_dir, preprocess(t_sr * 255))
+    hr_vgg = vgg19(vgg_dir, preprocess(t_hr * 255))
+
+    # For loop: Count number of parameters
     total_parameters = 0
     for variable in tf.trainable_variables():
         variable_parameters = 1
@@ -101,18 +110,32 @@ def train():
     print("Total number of trainable parameters: %d" % total_parameters)
 
     ####========================== DEFINE TRAIN OPS ==========================###
-    t_loss = tl.cost.absolute_difference_error(t_sr, t_hr, is_mean=True)
+    ## Define D loss
+    d_loss1 = tl.cost.sigmoid_cross_entropy(prob_real, tf.ones_like(prob_real), name='d1')
+    d_loss2 = tl.cost.sigmoid_cross_entropy(prob_fake, tf.zeros_like(prob_fake), name='d2')
+    d_loss = d_loss1 + d_loss2
+
+    ## Define G loss
+    # t_loss = tl.cost.absolute_difference_error(t_sr, t_hr, is_mean=True)
+    g_gan_loss = 1e-3 * tl.cost.mean_squared_error(prob_fake, tf.ones_like(prob_fake), name='g')
+    mse_loss = 0*tl.cost.mean_squared_error(t_sr, t_hr, is_mean=True)
+    vgg_loss = 2e-6 * tl.cost.mean_squared_error(sr_vgg[CONTENT_LAYER], hr_vgg[CONTENT_LAYER])
+    g_loss = g_gan_loss + vgg_loss  + mse_loss
 
     g_vars = tl.layers.get_variables_with_name('Generator', True, True)
+    d_vars = tl.layers.get_variables_with_name('Discriminator', True, True)
 
     with tf.variable_scope('learning_rate'):
         lr_v = tf.Variable(lr_init, trainable=False)
-    g_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(t_loss, var_list=g_vars)
+    ## Pretrain
+    g_optim_init = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(mse_loss, var_list=g_vars)
+    g_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(g_loss, var_list=g_vars)
+    d_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(d_loss, var_list=d_vars)
 
 
     #=============PSNR and SSIM================================================
     t_psnr = tf.image.psnr(t_sr, t_hr, max_val=1.0)
-    t_ssim = tf.image.ssim_multiscale(t_sr, t_hr, max_val=1.0) 
+    t_ssim = tf.image.ssim_multiscale(t_sr, t_hr, max_val=1.0)
 
     ###========================== RESTORE MODEL =============================###
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
@@ -120,11 +143,14 @@ def train():
 
     if args.phase == 'pretrain':
         body_saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'Generator/body'))
-    else: 
+    else:
         global_saver = tf.train.Saver()
         if args.pretrained_model != '':
             body_saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'Generator/body'))
             body_saver.restore(sess, args.pretrained_model)
+
+    ###============================= LOAD VGG ===============================###
+
 
     ###=========================Tensorboard=============================###
     writer = SummaryWriter(os.path.join(checkpoint, 'result'))
@@ -149,21 +175,38 @@ def train():
 
         epoch_time = time.time()
         num_batches = len(train_hr_imgs)//batch_size
-        running_loss = 0
+        # running_loss = 0
+        total_d_loss, total_g_loss = 0, 0
+        total_mse_loss, total_vgg_loss, total_g_gan_loss = 0, 0, 0
 
         for i in tqdm(range(num_batches)):
-            hr = tl.prepro.threading_data(train_hr_imgs[ids[i*batch_size:(i+1)*batch_size]], fn=crop_sub_imgs_fn, is_random=True)
+            hr = tl.prepro.threading_data(train_hr_imgs[ids[i*batch_size:(i+1)*batch_size]],
+                                          fn=crop_sub_imgs_fn, is_random=True)
             lr = tl.prepro.threading_data(hr, fn=downsample_fn, scale=args.scale)
             [lr, hr] = normalize([lr, hr])
+            ## update D
+            errD, _ = sess.run([d_loss, d_optim], {t_lr: lr, t_hr: hr})
 
             ## update G
-            loss, _ = sess.run([t_loss, g_optim], {t_lr: lr, t_hr: hr})
-            running_loss += loss
-        log = "[*] Epoch: [%2d/%2d], loss: %.8f" % (epoch, n_epoch, running_loss/num_batches)
+            errG, errM, errV, errA, _ = sess.run([g_loss, mse_loss, vgg_loss, g_gan_loss, g_optim], {t_lr: lr, t_hr: hr})
+
+            total_d_loss += errD
+            total_g_loss += errG
+            total_mse_loss += errM
+            total_vgg_loss += errV
+            total_g_gan_loss += errA
+
+        log = "[*] Epoch: [%2d/%2d], d_loss: %.6f, g_loss: %.6f, mse_loss: %.6f, vgg_loss: %.6f, g_gan_loss: %.6f" % \
+              (epoch, n_epoch, total_d_loss/num_batches, total_g_loss/num_batches, total_mse_loss/num_batches,
+               total_vgg_loss/num_batches, total_g_gan_loss/num_batches)
         print(log)
 
-        writer.add_scalar('Loss', running_loss/num_batches, epoch)
-        
+        writer.add_scalar('D_Loss', total_d_loss /num_batches, epoch)
+        writer.add_scalar('G_total_Loss', total_g_loss/num_batches, epoch)
+        writer.add_scalar('MSE_Loss', total_mse_loss / num_batches, epoch)
+        writer.add_scalar('VGG_Loss', total_vgg_loss / num_batches, epoch)
+        writer.add_scalar('G_gan_Loss', total_g_gan_loss / num_batches, epoch)
+
 
         #=============Valdating==================#
         running_loss = 0
@@ -178,26 +221,26 @@ def train():
                 lr = valid_lr_imgs[i]
 
                 [lr, hr] = normalize([lr, hr])
-                
+
                 hr_ex = np.expand_dims(hr, axis=0)
                 lr_ex = np.expand_dims(lr, axis=0)
-                
-                psnr, ssim, loss, sr_ex = sess.run([t_psnr, t_ssim, t_loss, t_sr], 
-                                                   {t_lr: lr_ex, t_hr: hr_ex})
+
+                psnr, ssim,  sr_ex = sess.run([t_psnr, t_ssim, t_sr], {t_lr: lr_ex, t_hr: hr_ex})
                 sr = np.squeeze(sr_ex)
-                
+
                 #[lr, sr, hr] = restore([lr, sr, hr])
                 update_tensorboard(epoch, writer, i, lr, sr, hr)
 
                 val_psnr += psnr #compute_PSNR(hr, sr)
                 val_ssim += ssim
+                loss = 0
                 running_loss += loss
 
                 # score referred to https://github.com/aiff22/ai-challenge
                 score += (psnr-26.5) + (ssim-0.94)*100
-                
 
-            
+
+
             val_psnr = val_psnr/len(valid_hr_imgs)
             val_ssim = val_ssim/len(valid_hr_imgs)
             score = score/len(valid_hr_imgs)

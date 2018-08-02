@@ -1,5 +1,4 @@
 #! /usr/bin/python
-# -*- coding: utf8 -*-
 
 import time
 import tensorflow as tf
@@ -7,6 +6,10 @@ import tensorlayer as tl
 from tensorlayer.layers import *
 import math
 from pixel_deshuffle import DeSubpixelConv2d
+import numpy as np
+import scipy.io
+
+IMAGE_MEAN = np.array([123.68 ,  116.779,  103.939])
 
 def init(in_feats, kernel_size=3):
     std = 1./math.sqrt(in_feats*(kernel_size**2))
@@ -145,7 +148,7 @@ def body(res, n_feats, n_groups, n_blocks, n_convs, n_squeezes, body_type='resne
         res = conv(res, n_feats, n_feats, act=None, conv_type=conv_type, name='res_lastconv')
     return res
 
-def SRGAN_g(t_bicubic, opt):
+def SRGAN_g(t_bicubic, opt, reuse=False):
 
     sample_type = opt['sample_type'] 
     conv_type   = opt['conv_type']
@@ -159,7 +162,7 @@ def SRGAN_g(t_bicubic, opt):
 
     scale       = opt['scale']
 
-    with tf.variable_scope('Generator') as vs:
+    with tf.variable_scope('Generator', reuse=reuse) as vs:
         # normalize input (0, 1) -> (-127.5, 127.5)
         #t_image = (t_image - 0.5)*255
         x = InputLayer(t_bicubic, name='in')
@@ -184,4 +187,106 @@ def SRGAN_g(t_bicubic, opt):
 
         return outputs
 
+
+def SRGAN_d(input_img, is_train=True, reuse=False):
+
+    w_init = tf.random_normal_initializer(stddev=0.02)
+    b_init = None  # tf.constant_initializer(value=0.0)
+    gamma_init = tf.random_normal_initializer(1., 0.02)
+    df_dim = 64
+    lrelu = lambda x: tl.act.lrelu(x, 0.2)
+
+    with tf.variable_scope('Discriminator', reuse=reuse):
+        tl.layers.set_name_reuse(reuse)
+        net_in = InputLayer(input_img, name='input')
+        net_h0 = Conv2d(net_in, df_dim, (4, 4), (2, 2), act=lrelu, padding='SAME', W_init=w_init, name='h0/c')
+
+        net_h1 = Conv2d(net_h0, df_dim * 2, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init, b_init=b_init,
+                        name='h1/c')
+        net_h1 = BatchNormLayer(net_h1, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h1/bn')
+        net_h2 = Conv2d(net_h1, df_dim * 4, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init, b_init=b_init,
+                        name='h2/c')
+        net_h2 = BatchNormLayer(net_h2, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h2/bn')
+        net_h3 = Conv2d(net_h2, df_dim * 8, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init, b_init=b_init,
+                        name='h3/c')
+        net_h3 = BatchNormLayer(net_h3, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h3/bn')
+        net_h4 = Conv2d(net_h3, df_dim * 16, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init, b_init=b_init,
+                        name='h4/c')
+        net_h4 = BatchNormLayer(net_h4, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h4/bn')
+        net_h5 = Conv2d(net_h4, df_dim * 32, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init, b_init=b_init,
+                        name='h5/c')
+        net_h5 = BatchNormLayer(net_h5, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h5/bn')
+        net_h6 = Conv2d(net_h5, df_dim * 16, (1, 1), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
+                        name='h6/c')
+        net_h6 = BatchNormLayer(net_h6, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h6/bn')
+        net_h7 = Conv2d(net_h6, df_dim * 8, (1, 1), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
+                        name='h7/c')
+        net_h7 = BatchNormLayer(net_h7, is_train=is_train, gamma_init=gamma_init, name='h7/bn')
+
+        net = Conv2d(net_h7, df_dim * 2, (1, 1), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
+                     name='res/c')
+        net = BatchNormLayer(net, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='res/bn')
+        net = Conv2d(net, df_dim * 2, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
+                     name='res/c2')
+        net = BatchNormLayer(net, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='res/bn2')
+        net = Conv2d(net, df_dim * 8, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
+                     name='res/c3')
+        net = BatchNormLayer(net, is_train=is_train, gamma_init=gamma_init, name='res/bn3')
+        net_h8 = ElementwiseLayer([net_h7, net], combine_fn=tf.add, name='res/add')
+        net_h8.outputs = tl.act.lrelu(net_h8.outputs, 0.2)
+
+        #net_ho = FlattenLayer(net_h8, name='ho/flatten')
+        net_ho = GlobalMeanPool2d(net_h8)
+        net_ho = DenseLayer(net_ho, n_units=1, act=tf.identity, W_init=w_init, name='ho/dense')
+        logits = net_ho.outputs
+        net_ho.outputs = tf.nn.sigmoid(net_ho.outputs)
+
+    return net_ho, logits
+
+def _conv_layer(input, weights, bias):
+    conv = tf.nn.conv2d(input, tf.constant(weights), strides=(1, 1, 1, 1), padding='SAME')
+    return tf.nn.bias_add(conv, bias)
+
+def _pool_layer(input):
+    return tf.nn.max_pool(input, ksize=(1, 2, 2, 1), strides=(1, 2, 2, 1), padding='SAME')
+
+def vgg19(path_to_vgg_net, input_image):
+
+    layers = (
+        'conv1_1', 'relu1_1', 'conv1_2', 'relu1_2', 'pool1',
+
+        'conv2_1', 'relu2_1', 'conv2_2', 'relu2_2', 'pool2',
+
+        'conv3_1', 'relu3_1', 'conv3_2', 'relu3_2', 'conv3_3',
+        'relu3_3', 'conv3_4', 'relu3_4', 'pool3',
+
+        'conv4_1', 'relu4_1', 'conv4_2', 'relu4_2', 'conv4_3',
+        'relu4_3', 'conv4_4', 'relu4_4', 'pool4',
+
+        'conv5_1', 'relu5_1', 'conv5_2', 'relu5_2', 'conv5_3',
+        'relu5_3', 'conv5_4', 'relu5_4'
+    )
+
+    data = scipy.io.loadmat(path_to_vgg_net)
+    weights = data['layers'][0]
+
+    net = {}
+    current = input_image
+    for i, name in enumerate(layers):
+        layer_type = name[:4]
+        if layer_type == 'conv':
+            kernels, bias = weights[i][0][0][0][0]
+            kernels = np.transpose(kernels, (1, 0, 2, 3))
+            bias = bias.reshape(-1)
+            current = _conv_layer(current, kernels, bias)
+        elif layer_type == 'relu':
+            current = tf.nn.relu(current)
+        elif layer_type == 'pool':
+            current = _pool_layer(current)
+        net[name] = current
+
+    return net
+
+def preprocess(image):
+    return image - IMAGE_MEAN
 
