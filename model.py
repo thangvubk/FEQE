@@ -148,7 +148,7 @@ def body(res, n_feats, n_groups, n_blocks, n_convs, n_squeezes, body_type='resne
         res = conv(res, n_feats, n_feats, act=None, conv_type=conv_type, name='res_lastconv')
     return res
 
-def SRGAN_g(t_bicubic, opt, reuse=False):
+def SRGAN_g(t_bicubic, opt):
 
     sample_type = opt['sample_type'] 
     conv_type   = opt['conv_type']
@@ -162,7 +162,7 @@ def SRGAN_g(t_bicubic, opt, reuse=False):
 
     scale       = opt['scale']
 
-    with tf.variable_scope('Generator', reuse=reuse) as vs:
+    with tf.variable_scope('Generator') as vs:
         # normalize input (0, 1) -> (-127.5, 127.5)
         #t_image = (t_image - 0.5)*255
         x = InputLayer(t_bicubic, name='in')
@@ -186,62 +186,6 @@ def SRGAN_g(t_bicubic, opt, reuse=False):
         outputs = tf.clip_by_value(x.outputs, 0, 1)
 
         return outputs
-
-
-def SRGAN_d(input_img, is_train=True, reuse=False):
-
-    w_init = tf.random_normal_initializer(stddev=0.02)
-    b_init = None  # tf.constant_initializer(value=0.0)
-    gamma_init = tf.random_normal_initializer(1., 0.02)
-    df_dim = 64
-    lrelu = lambda x: tl.act.lrelu(x, 0.2)
-
-    with tf.variable_scope('Discriminator', reuse=reuse):
-        tl.layers.set_name_reuse(reuse)
-        net_in = InputLayer(input_img, name='input')
-        net_h0 = Conv2d(net_in, df_dim, (4, 4), (2, 2), act=lrelu, padding='SAME', W_init=w_init, name='h0/c')
-
-        net_h1 = Conv2d(net_h0, df_dim * 2, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                        name='h1/c')
-        net_h1 = BatchNormLayer(net_h1, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h1/bn')
-        net_h2 = Conv2d(net_h1, df_dim * 4, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                        name='h2/c')
-        net_h2 = BatchNormLayer(net_h2, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h2/bn')
-        net_h3 = Conv2d(net_h2, df_dim * 8, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                        name='h3/c')
-        net_h3 = BatchNormLayer(net_h3, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h3/bn')
-        net_h4 = Conv2d(net_h3, df_dim * 16, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                        name='h4/c')
-        net_h4 = BatchNormLayer(net_h4, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h4/bn')
-        net_h5 = Conv2d(net_h4, df_dim * 32, (4, 4), (2, 2), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                        name='h5/c')
-        net_h5 = BatchNormLayer(net_h5, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h5/bn')
-        net_h6 = Conv2d(net_h5, df_dim * 16, (1, 1), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                        name='h6/c')
-        net_h6 = BatchNormLayer(net_h6, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='h6/bn')
-        net_h7 = Conv2d(net_h6, df_dim * 8, (1, 1), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                        name='h7/c')
-        net_h7 = BatchNormLayer(net_h7, is_train=is_train, gamma_init=gamma_init, name='h7/bn')
-
-        net = Conv2d(net_h7, df_dim * 2, (1, 1), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                     name='res/c')
-        net = BatchNormLayer(net, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='res/bn')
-        net = Conv2d(net, df_dim * 2, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                     name='res/c2')
-        net = BatchNormLayer(net, act=lrelu, is_train=is_train, gamma_init=gamma_init, name='res/bn2')
-        net = Conv2d(net, df_dim * 8, (3, 3), (1, 1), act=None, padding='SAME', W_init=w_init, b_init=b_init,
-                     name='res/c3')
-        net = BatchNormLayer(net, is_train=is_train, gamma_init=gamma_init, name='res/bn3')
-        net_h8 = ElementwiseLayer([net_h7, net], combine_fn=tf.add, name='res/add')
-        net_h8.outputs = tl.act.lrelu(net_h8.outputs, 0.2)
-
-        #net_ho = FlattenLayer(net_h8, name='ho/flatten')
-        net_ho = GlobalMeanPool2d(net_h8)
-        net_ho = DenseLayer(net_ho, n_units=1, act=tf.identity, W_init=w_init, name='ho/dense')
-        logits = net_ho.outputs
-        net_ho.outputs = tf.nn.sigmoid(net_ho.outputs)
-
-    return net_ho, logits
 
 def _conv_layer(input, weights, bias):
     conv = tf.nn.conv2d(input, tf.constant(weights), strides=(1, 1, 1, 1), padding='SAME')

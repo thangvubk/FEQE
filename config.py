@@ -10,9 +10,9 @@ config.TRAIN.lr_init = 1e-4
 config.TRAIN.beta1 = 0.9
 
 ## adversarial learning (SRGAN)
-config.TRAIN.n_epoch = 500
+config.TRAIN.n_epoch = 2000
 config.TRAIN.lr_decay = 0.5
-config.TRAIN.decay_every = 300
+config.TRAIN.decay_every = 1200
 
 ## train set location
 config.TRAIN.hr_img_path = 'data/DIV2K_train_HR/'
