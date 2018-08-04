@@ -21,7 +21,7 @@ parser.add_argument('--sample_type', type=str, default='subpixel')
 parser.add_argument('--conv_type', type=str, default='default')
 parser.add_argument('--body_type', type=str, default='resnet')
 parser.add_argument('--n_feats', type=int, default=16)
-parser.add_argument('--n_blocks', type=int, default=32)
+parser.add_argument('--n_blocks', type=int, default=16)
 parser.add_argument('--n_groups', type=int, default=0)
 parser.add_argument('--n_convs', type=int, default=0)
 parser.add_argument('--n_squeezes', type=int, default=0)
@@ -32,6 +32,8 @@ parser.add_argument('--pretrained_model', type=str, default='')
 parser.add_argument('--train_path', type=str, default='./data/DIV2K_train_HR')
 parser.add_argument('--valid_path', type=str, default='./data/DIV2K_valid_HR_9')
 parser.add_argument('--phase', type=str, default='train')
+parser.add_argument('--alpha_l1', type=float, default=1)
+parser.add_argument('--alpha_vgg', type=float, default=0)
 args = parser.parse_args()
 
 ###====================== HYPER-PARAMETERS ===========================###
@@ -87,8 +89,6 @@ def train():
     }
 
     t_sr = SRGAN_g(t_lr, opt)
-    _, prob_real = SRGAN_d(t_hr, is_train=True, reuse=False)
-    _, prob_fake = SRGAN_d(t_sr, is_train=True, reuse=True)
 
     ## Load VGG net
     vgg_dir = args.vgg_dir
@@ -110,27 +110,18 @@ def train():
     print("Total number of trainable parameters: %d" % total_parameters)
 
     ####========================== DEFINE TRAIN OPS ==========================###
-    ## Define D loss
-    d_loss1 = tl.cost.sigmoid_cross_entropy(prob_real, tf.ones_like(prob_real), name='d1')
-    d_loss2 = tl.cost.sigmoid_cross_entropy(prob_fake, tf.zeros_like(prob_fake), name='d2')
-    d_loss = d_loss1 + d_loss2
-
     ## Define G loss
-    # t_loss = tl.cost.absolute_difference_error(t_sr, t_hr, is_mean=True)
-    g_gan_loss = 1e-3 * tl.cost.mean_squared_error(prob_fake, tf.ones_like(prob_fake), name='g')
-    mse_loss = 0*tl.cost.mean_squared_error(t_sr, t_hr, is_mean=True)
-    vgg_loss = 2e-6 * tl.cost.mean_squared_error(sr_vgg[CONTENT_LAYER], hr_vgg[CONTENT_LAYER])
-    g_loss = g_gan_loss + vgg_loss  + mse_loss
+    #l1_loss = args.alpha_l1*tl.cost.absolute_difference_error(t_sr, t_hr, is_mean=True)
+    l1_loss = args.alpha_l1*tl.cost.mean_squared_error(t_sr, t_hr, is_mean=True)
+    vgg_loss = args.alpha_vgg*tl.cost.mean_squared_error(sr_vgg[CONTENT_LAYER], hr_vgg[CONTENT_LAYER], is_mean=True) if args.alpha_vgg != 0 else tf.constant(0.0)
+    g_loss = vgg_loss  + l1_loss
 
     g_vars = tl.layers.get_variables_with_name('Generator', True, True)
-    d_vars = tl.layers.get_variables_with_name('Discriminator', True, True)
 
     with tf.variable_scope('learning_rate'):
         lr_v = tf.Variable(lr_init, trainable=False)
     ## Pretrain
-    g_optim_init = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(mse_loss, var_list=g_vars)
     g_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(g_loss, var_list=g_vars)
-    d_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(d_loss, var_list=d_vars)
 
 
     #=============PSNR and SSIM================================================
@@ -146,7 +137,7 @@ def train():
     else:
         global_saver = tf.train.Saver()
         if args.pretrained_model != '':
-            body_saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'Generator/body'))
+            body_saver = tf.train.Saver(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 'Generator'))
             body_saver.restore(sess, args.pretrained_model)
 
     ###============================= LOAD VGG ===============================###
@@ -176,36 +167,29 @@ def train():
         epoch_time = time.time()
         num_batches = len(train_hr_imgs)//batch_size
         # running_loss = 0
-        total_d_loss, total_g_loss = 0, 0
-        total_mse_loss, total_vgg_loss, total_g_gan_loss = 0, 0, 0
+        total_vgg_loss, total_l1_loss, total_g_loss = 0, 0, 0
 
         for i in tqdm(range(num_batches)):
             hr = tl.prepro.threading_data(train_hr_imgs[ids[i*batch_size:(i+1)*batch_size]],
                                           fn=crop_sub_imgs_fn, is_random=True)
             lr = tl.prepro.threading_data(hr, fn=downsample_fn, scale=args.scale)
             [lr, hr] = normalize([lr, hr])
-            ## update D
-            errD, _ = sess.run([d_loss, d_optim], {t_lr: lr, t_hr: hr})
 
             ## update G
-            errG, errM, errV, errA, _ = sess.run([g_loss, mse_loss, vgg_loss, g_gan_loss, g_optim], {t_lr: lr, t_hr: hr})
+            errG, errL, errV, _ = sess.run([g_loss, l1_loss, vgg_loss, g_optim], {t_lr: lr, t_hr: hr})
 
-            total_d_loss += errD
             total_g_loss += errG
-            total_mse_loss += errM
+            total_l1_loss += errL
             total_vgg_loss += errV
-            total_g_gan_loss += errA
 
-        log = "[*] Epoch: [%2d/%2d], d_loss: %.6f, g_loss: %.6f, mse_loss: %.6f, vgg_loss: %.6f, g_gan_loss: %.6f" % \
-              (epoch, n_epoch, total_d_loss/num_batches, total_g_loss/num_batches, total_mse_loss/num_batches,
-               total_vgg_loss/num_batches, total_g_gan_loss/num_batches)
+        log = "[*] Epoch: [%2d/%2d], g_loss: %.6f, l1_loss: %.6f, vgg_loss: %.6f" % \
+              (epoch, n_epoch, total_g_loss/num_batches, total_l1_loss/num_batches,
+               total_vgg_loss/num_batches)
         print(log)
 
-        writer.add_scalar('D_Loss', total_d_loss /num_batches, epoch)
         writer.add_scalar('G_total_Loss', total_g_loss/num_batches, epoch)
-        writer.add_scalar('MSE_Loss', total_mse_loss / num_batches, epoch)
+        writer.add_scalar('MSE_Loss', total_l1_loss / num_batches, epoch)
         writer.add_scalar('VGG_Loss', total_vgg_loss / num_batches, epoch)
-        writer.add_scalar('G_gan_Loss', total_g_gan_loss / num_batches, epoch)
 
 
         #=============Valdating==================#
