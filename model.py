@@ -52,12 +52,12 @@ def downsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel',
     with tf.variable_scope(name):
         if sample_type == 'subpixel':
             assert scale == 2 or scale == 4
-
-            # pretrain on scale 2 then finetune of scale 4
-            x = conv(x, 3, n_feats//4, (1, 1), act=None, conv_type=conv_type, name='conv1')
-            x = DeSubpixelConv2d(x, 2, name='pixel_deshuffle1')
-            if scale == 4:
-                x = conv(x, n_feats, n_feats//4, (1, 1), act=None, conv_type=conv_type, name='conv2')
+            if scale == 2:
+                x = conv(x, 3, n_feats//4, (1, 1), act=None, conv_type=conv_type, name='conv')
+                x = DeSubpixelConv2d(x, 2, name='pixel_deshuffle')
+            else:
+                x = DeSubpixelConv2d(x, 2, name='pixel_deshuffle1')
+                x = conv(x, 12, n_feats//4, (1, 1), act=None, conv_type=conv_type, name='conv2')
                 x = DeSubpixelConv2d(x, 2, name='pixel_deshuffle2')
 
         elif sample_type == 'deconv':
@@ -75,10 +75,12 @@ def upsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel', n
     with tf.variable_scope(name):
         if sample_type == 'subpixel':
             assert scale == 2 or scale == 4
-
-            x = conv(x, n_feats, n_feats*4, (1, 1), act=None, conv_type=conv_type, name='conv1')
-            x = SubpixelConv2d(x, scale=2, n_out_channel=None, name='pixelshuffle1')# /1
-            if scale == 4:
+            if scale == 2:
+                x = conv(x, n_feats, 3*4, (1, 1), act=None, conv_type=conv_type, name='conv')
+                x = SubpixelConv2d(x, scale=2, n_out_channel=None, name='pixelshuffle')
+            else:
+                x = conv(x, n_feats, n_feats*4, (1, 1), act=None, conv_type=conv_type, name='conv1')
+                x = SubpixelConv2d(x, scale=2, n_out_channel=None, name='pixelshuffle1')# /1
                 x = conv(x, n_feats, 3*4, (1, 1), act=None, conv_type=conv_type, name='conv2')
                 x = SubpixelConv2d(x, scale=2, n_out_channel=None, name='pixelshuffle2')
 
@@ -95,8 +97,10 @@ def upsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel', n
 
 def res_block(x, n_feats, conv_type='default', name='res_block'):
     with tf.variable_scope(name):
-        res = conv(x, n_feats, n_feats, act=tf.nn.relu, conv_type=conv_type, name='conv1')
+        res = conv(x, n_feats, n_feats, act=None, conv_type=conv_type, name='conv1')
+        res = InstanceNormLayer(res, act=tf.nn.relu, epsilon=1e-5, name='instance_norm1')
         res = conv(res, n_feats, n_feats, act=None, conv_type=conv_type, name='conv2')
+        res = InstanceNormLayer(res, epsilon=1e-5, name='instance_norm2')
         x = ElementwiseLayer([x, res], tf.add, name='res_add')
     return x
 
@@ -108,7 +112,22 @@ def res_group(x, n_feats, n_blocks, conv_type='default', name='res_group'):
         x = ElementwiseLayer([x, res], tf.add, name='add')
     return x
 
-def body(res, n_feats, n_groups, n_blocks, n_convs, body_type='resnet', conv_type='defaults', name='body'):
+def fire(x, n_feats, conv_type, name):
+    with tf.variable_scope(name):
+        res = conv(x, n_feats, n_feats//4, (1, 1), act=tf.nn.relu, conv_type=conv_type, name='conv1')
+        res_11 = conv(res, n_feats//4, n_feats//2, (1, 1), act=tf.nn.relu, conv_type=conv_type, name='conv2')
+        res_33 = conv(res, n_feats//4, n_feats//2, act=tf.nn.relu, conv_type=conv_type, name='conv3')
+        res = ConcatLayer([res_11, res_33], 3, name='concat1')
+
+        res = conv(x, n_feats, n_feats//4, (1, 1), act=tf.nn.relu, conv_type=conv_type, name='conv4')
+        res_11 = conv(res, n_feats//4, n_feats//2, (1, 1), act=tf.nn.relu, conv_type=conv_type, name='conv5')
+        res_33 = conv(res, n_feats//4, n_feats//2, act=tf.nn.relu, conv_type=conv_type, name='conv6')
+        res = ConcatLayer([res_11, res_33], 3, name='concat2')
+        x = ElementwiseLayer([x, res], tf.add, name='add')
+
+    return x
+
+def body(res, n_feats, n_groups, n_blocks, n_convs, n_squeezes, body_type='resnet', conv_type='default', name='body'):
     with tf.variable_scope(name):
         if body_type == 'resnet':
             for i in range(n_blocks):
@@ -119,6 +138,9 @@ def body(res, n_feats, n_groups, n_blocks, n_convs, body_type='resnet', conv_typ
         elif body_type == 'conv':
             for i in range(n_convs):
                 res = conv(res, n_feats, n_feats, conv_type=conv_type, name='conv%d' %i)
+        elif body_type == 'squeeze':
+            for i in range(n_squeezes):
+                res = fire(res, n_feats, conv_type, name='fire%d' %i) 
         else:
             raise Exception('Unknown body type', body_type)
         
@@ -135,6 +157,7 @@ def SRGAN_g(t_bicubic, opt):
     n_blocks    = opt['n_blocks']
     n_groups    = opt['n_groups']
     n_convs     = opt['n_convs']
+    n_squeezes  = 0
 
     scale       = opt['scale']
 
@@ -147,11 +170,9 @@ def SRGAN_g(t_bicubic, opt):
 
         #===========Downsample==============
         x = downsample(x, n_feats, scale, conv_type, sample_type)
-        res = x
 
         #============Residual=================
-        res = body(res, n_feats, n_groups, n_blocks, n_convs, body_type, conv_type)
-        x = res #ElementwiseLayer([x, res], tf.add, name='add_res')
+        x = body(x, n_feats, n_groups, n_blocks, n_convs, n_squeezes, body_type, conv_type)
         
         #=============Upsample==================
         x = upsample(x, n_feats, scale, conv_type, sample_type)
@@ -162,6 +183,7 @@ def SRGAN_g(t_bicubic, opt):
         #outputs = x.outputs/255 + 0.5
         x = RestoreLayer(x, 0.5, 255)
         outputs = tf.clip_by_value(x.outputs, 0, 1)
+
         return outputs
 
 
