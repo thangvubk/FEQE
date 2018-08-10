@@ -147,7 +147,7 @@ def body(res, n_feats, n_groups, n_blocks, n_convs, n_squeezes, body_type='resne
         res = conv(res, n_feats, n_feats, act=None, conv_type=conv_type, name='res_lastconv')
     return res
 
-def SRGAN_g(t_bicubic, opt):
+def SRGAN_g(t_bicubic, opt, reuse=False):
 
     sample_type = opt['sample_type'] 
     conv_type   = opt['conv_type']
@@ -161,7 +161,7 @@ def SRGAN_g(t_bicubic, opt):
 
     scale       = opt['scale']
 
-    with tf.variable_scope('Generator') as vs:
+    with tf.variable_scope('Generator', reuse=reuse) as vs:
         # normalize input (0, 1) -> (-127.5, 127.5)
         #t_image = (t_image - 0.5)*255
         x = InputLayer(t_bicubic, name='in')

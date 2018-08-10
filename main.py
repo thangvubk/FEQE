@@ -26,7 +26,7 @@ parser.add_argument('--sample_type', type=str, default='subpixel')
 parser.add_argument('--conv_type', type=str, default='default')
 parser.add_argument('--body_type', type=str, default='resnet')
 parser.add_argument('--n_feats', type=int, default=16)
-parser.add_argument('--n_blocks', type=int, default=16)
+parser.add_argument('--n_blocks', type=int, default=14)
 parser.add_argument('--n_groups', type=int, default=0)
 parser.add_argument('--n_convs', type=int, default=0)
 parser.add_argument('--scale', type=int, default=4)
@@ -36,8 +36,11 @@ parser.add_argument('--pretrained_model', type=str, default='')
 parser.add_argument('--train_path', type=str, default='./data/DIV2K_train_HR')
 parser.add_argument('--valid_path', type=str, default='./data/DIV2K_valid_HR_9')
 parser.add_argument('--phase', type=str, default='train')
-parser.add_argument('--loss', type=str, default='l1')
 parser.add_argument('--weight_decay', type=float, default=0)
+parser.add_argument('--alpha_mse', type=float, default=1)
+parser.add_argument('--alpha_vgg', type=float, default=0)
+parser.add_argument('--alpha_color', type=float, default=0)
+parser.add_argument('--visualize', type=lambda x: (str(x).lower() == 'true'), default=True)
 args = parser.parse_args()
 
 ###====================== HYPER-PARAMETERS ===========================###
@@ -100,8 +103,10 @@ def train():
 
     ###========================== DEFINE MODEL ============================###
     ## train inference
-    t_lq = tf.placeholder('float32', [None, None, None, 3], name='t_lq')
-    t_hq = tf.placeholder('float32', [None, None, None, 3], name='t_hq')
+    t_lq = tf.placeholder('float32', [None, 100, 100, 3], name='t_lq')
+    t_hq = tf.placeholder('float32', [None, 100, 100, 3], name='t_hq')
+
+    t_lq_vis = tf.placeholder('float32', [1, None, None, 3], name='t_lq_vis')
 
     opt = {
         'n_feats': args.n_feats,
@@ -114,6 +119,7 @@ def train():
         'scale': args.scale
     }
     t_sr = SRGAN_g(t_lq, opt)
+    t_sr_vis = SRGAN_g(t_lq_vis, opt, reuse=True)
     #t_sr = resnet_8_32(t_lq)
 
     total_parameters = 0
@@ -126,63 +132,44 @@ def train():
 
     ####========================== DEFINE TRAIN OPS ==========================###
     #l1_loss = tl.cost.absolute_difference_error(t_sr, t_hq, is_mean=True)
-    
+    t_mse_loss = args.alpha_mse*tl.cost.mean_squared_error(t_sr, t_hq, is_mean=True)
+    # 2) content loss
 
-    if args.loss == 'l1':
-        loss = tl.cost.absolute_difference_error(t_sr, t_hq, is_mean=True)
-    else:
-        # 2) content loss
-
+    with tf.variable_scope('vgg_loss'):
         CONTENT_LAYER = 'relu5_4'
         vgg_dir = 'vgg_pretrained/imagenet-vgg-verydeep-19.mat'
         enhanced_vgg = vgg.net(vgg_dir, vgg.preprocess(t_sr * 255))
         dslr_vgg = vgg.net(vgg_dir, vgg.preprocess(t_hq * 255))
 
-        content_size = utils2._tensor_size(dslr_vgg[CONTENT_LAYER]) * batch_size
-        loss_content = 2 * tf.nn.l2_loss(enhanced_vgg[CONTENT_LAYER] - dslr_vgg[CONTENT_LAYER]) / content_size
+        t_vgg_loss = args.alpha_vgg*tl.cost.mean_squared_error(enhanced_vgg[CONTENT_LAYER], dslr_vgg[CONTENT_LAYER], is_mean=True) if args.alpha_vgg != 0 else tf.constant(0.0)
+    # 3) color loss
 
-        # 3) color loss
-
+    with tf.variable_scope('color_loss'):
         enhanced_blur = utils2.blur(t_sr)
         dslr_blur = utils2.blur(t_hq)
+        t_color_loss = args.alpha_color*tf.reduce_sum(tf.pow(dslr_blur - enhanced_blur, 2))/(2 * batch_size) if args.alpha_color != 0 else tf.constant(0.0)
 
-        loss_color = tf.reduce_sum(tf.pow(dslr_blur - enhanced_blur, 2))/(2 * batch_size)
-
-        # 4) total variation loss
-
-        batch_shape = (batch_size, PATCH_WIDTH, PATCH_HEIGHT, 3)
-        tv_y_size = utils2._tensor_size(t_sr[:,1:,:,:])
-        tv_x_size = utils2._tensor_size(t_sr[:,:,1:,:])
-        y_tv = tf.nn.l2_loss(t_sr[:,1:,:,:] - t_sr[:,:batch_shape[1]-1,:,:])
-        x_tv = tf.nn.l2_loss(t_sr[:,:,1:,:] - t_sr[:,:,:batch_shape[2]-1,:])
-        loss_tv = 2 * (x_tv/tv_x_size + y_tv/tv_y_size) / batch_size
-
-        # final loss
-        w_content = 10
-        w_color = 0.5
-        w_tv = 2000
-        loss = w_content * loss_content + w_color * loss_color + w_tv * loss_tv
+    # final loss
+    t_loss = t_mse_loss + t_vgg_loss + t_color_loss
 
     with tf.variable_scope('l1_regularizer'):
         l2 = 0
         if args.weight_decay != 0:
             for w in tl.layers.get_variables_with_name('Generator', True, True):
                 l2 += tf.contrib.layers.l2_regularizer(args.weight_decay)(w)
-    loss = loss + l2
+    t_loss = t_loss + l2
 
     g_vars = tl.layers.get_variables_with_name('Generator', True, True)
 
     with tf.variable_scope('learning_rate'):
         lr_v = tf.Variable(lr_init, trainable=False)
-    g_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(loss, var_list=g_vars)
+    g_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(t_loss, var_list=g_vars)
 
-    #=============PSNR and SSIM================================================
-    #t_psnr = tf.image.psnr(t_sr, t_hq, max_val=1.0)
+    #============================PSNR============================================
+    # average the entire batch to avoid Inf PSNR in some patches
     with tf.variable_scope('PSNR'):
         loss_mse = tf.reduce_sum(tf.pow(t_hq - t_sr, 2))/(100*100*3)/batch_size
         t_psnr = 20 * log10(1.0 / tf.sqrt(loss_mse))
-
-    #t_ssim = tf.image.ssim_multiscale(t_sr, t_hq, max_val=1.0)  
 
     ###========================== RESTORE MODEL =============================###
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
@@ -190,7 +177,6 @@ def train():
     saver = tf.train.Saver()
     if args.pretrained_model != '':
         saver.restore(sess, args.pretrained_model)
-    #train_writer = tf.summary.FileWriter('test_tb', sess.graph)
 
     ###=========================Tensorboard=============================###
     writer = SummaryWriter(os.path.join(checkpoint, 'result'))
@@ -199,7 +185,6 @@ def train():
 
     ###========================= Training ====================###
     for epoch in range(1, n_epoch + 1):
-        ## array_imgs = np.random.permutation(160471)
         ## update learning rate
         if epoch == 1:
             sess.run(tf.assign(lr_v, lr_init))
@@ -213,56 +198,47 @@ def train():
 
         epoch_time = time.time()
         num_batches = len(train_hq_imgs)//batch_size
-        running_loss = 0
+        running_loss = np.zeros(4)
 
-        #==========Ids for shuffling====================
+        # Ids for shuffling
         ids = np.random.permutation(len(train_hq_imgs))
 
         for idx in tqdm(range(num_batches)):
             aug_idx = random.randint(0,7)
             hq = tl.prepro.threading_data(train_hq_imgs[ids[idx*batch_size:(idx+1)*batch_size]], fn=augment, aug_idx=aug_idx)
             lq = tl.prepro.threading_data(train_lq_imgs[ids[idx*batch_size:(idx+1)*batch_size]], fn=augment, aug_idx=aug_idx)
-            #hq = train_hq_imgs[ids[idx*batch_size:(idx+1)*batch_size]] ### use random array
-            #lq = train_lq_imgs[ids[idx*batch_size:(idx+1)*batch_size]]
-            ###check the type of hq,lq, delete later
-            #print("Type hq and lq: {} and {}".format(type(hq),type(lq)))
-
             [lq, hq] = normalize([lq, hq])
 
             ## update G
-            loss_val, _ = sess.run([loss, g_optim], {t_lq: lq, t_hq: hq})
-            running_loss += loss_val
-        log = "[*] Epoch: [%2d/%2d], loss: %.8f" % (epoch, n_epoch, running_loss/num_batches)
-        print(log)
+            loss, mse_loss, vgg_loss, color_loss, _ = sess.run([t_loss, t_mse_loss, t_vgg_loss, t_color_loss, g_optim], {t_lq: lq, t_hq: hq})
+            running_loss += [loss, mse_loss, vgg_loss, color_loss]
+        avr_loss = running_loss/num_batches
+        print("[*] Epoch: [%2d/%2d], loss: %.8f. MSE: %.4f. VGG: %.4f. Color: %.4f" \
+              % (epoch, n_epoch, avr_loss[0], avr_loss[1], avr_loss[2], avr_loss[3]))
 
-        writer.add_scalar('Loss', running_loss/num_batches, epoch)
+        writer.add_scalar('Total', avr_loss[0], epoch)
+        writer.add_scalar('MSE', avr_loss[1], epoch)
+        writer.add_scalar('VGG', avr_loss[2], epoch)
+        writer.add_scalar('Color', avr_loss[3], epoch)
 
         running_loss = 0
-        if (epoch % args.eval_every == 0):
+        
+        if args.visualize:
             print('Visualize...')
-            num_batches = len(visual_lq_imgs)//4
-            for idx in tqdm(range(num_batches)):
-                #if idx == 100: break
-                lq = visual_lq_imgs[0:4]
+            for idx in tqdm(range(len(visual_lq_imgs))):
+                lq = visual_lq_imgs[idx]
 
-                [lq, hq] = normalize([lq, lq])
+                [lq] = normalize([lq])
+                lq_ex = np.expand_dims(lq, axis=0)
 
-                #hq_ex = np.expand_dims(hq, axis=0)
-                #lq_ex = np.expand_dims(lq, axis=0)
-
-                sr = sess.run(t_sr, {t_lq: lq})
-                #print(idx, psnr)
-                #sr = np.squeeze(sr_ex)
-
-                if idx == 0:
-                    for i in range(4):
-                        [lq_i, sr_i, hq_i] = [lq[i], sr[i], hq[i]]
-                        [lq_i, sr_i, hq_i] = restore([lq_i, sr_i, hq_i])
-                        update_tensorboard(epoch, writer, i-4, lq_i, sr_i, hq_i)
-
+                sr_ex = sess.run(t_sr_vis, {t_lq_vis: lq_ex})
+                sr = np.squeeze(sr_ex)
+                
+                [lq, sr] = restore([lq, sr])
+                update_tensorboard(epoch, writer, idx, lq, sr, sr)
 
         #=============Valdating==================#
-        running_loss = 0
+        running_loss = np.zeros(4)
         if (epoch % args.eval_every == 0):
             print('Validating...')
             val_psnr = 0
@@ -273,35 +249,26 @@ def train():
                 lq = valid_lq_imgs[idx*batch_size: (idx+1)*batch_size]
 
                 [lq, hq] = normalize([lq, hq])
+                psnr, loss, mse_loss, vgg_loss, color_loss = sess.run([t_psnr, t_loss, t_mse_loss, t_vgg_loss, t_color_loss], {t_lq: lq, t_hq: hq})
 
-                #hq_ex = np.expand_dims(hq, axis=0)
-                #lq_ex = np.expand_dims(lq, axis=0)
-
-                psnr, loss_val, sr = sess.run([t_psnr, loss, t_sr], {t_lq: lq, t_hq: hq})
-                #print(idx, psnr)
-                #sr = np.squeeze(sr_ex)
-
-                if idx == 0:
-                    for i in range(10):
-                        [lq_i, sr_i, hq_i] = [lq[i], sr[i], hq[i]]
-                        [lq_i, sr_i, hq_i] = restore([lq_i, sr_i, hq_i])
-                        update_tensorboard(epoch, writer, i, lq_i, sr_i, hq_i)
-
+                running_loss += [loss, mse_loss, vgg_loss, color_loss]
                 val_psnr += psnr #compute_PSNR(hr, sr)
-                running_loss += loss_val
 
+            #saver.save(sess, os.path.join(checkpoint, 'model_{}.ckpt'.format(epoch)))
 
             val_psnr = val_psnr/num_batches
             avr_loss = running_loss/num_batches
-            print('fasdf', val_psnr)
             if val_psnr > best_psnr:
                 best_psnr = val_psnr
                 best_epoch = epoch
                 print('Saving new best model')
                 saver.save(sess, os.path.join(checkpoint, 'model.ckpt'))
             print('Validate psnr: %.4fdB. Best: %.4fdB at epoch %d' %(val_psnr, best_psnr, best_epoch))
-            writer.add_scalar('Validate PSNR', val_psnr, epoch)
-            writer.add_scalar('Validation Loss', avr_loss, epoch)
+            writer.add_scalar('Val PSNR', val_psnr, epoch)
+            writer.add_scalar('Val Total', avr_loss[0], epoch)
+            writer.add_scalar('Val MSE', avr_loss[1], epoch)
+            writer.add_scalar('Val VGG', avr_loss[2], epoch)
+            writer.add_scalar('Val Color', avr_loss[3], epoch)
 
 if __name__ == '__main__':
     train()

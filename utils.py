@@ -20,6 +20,22 @@ def crop_sub_imgs_fn(x, is_random=True):
     #x = crop(x, wrg=192, hrg=192, is_random=is_random)
     return x
 
+def augment(x, aug_idx=0):
+    """random flip and rotate aumentation"""
+    
+    if (aug_idx>>2)&1 == 1:
+        # transpose
+        x = x.transpose((1, 0, 2)).copy()
+    if (aug_idx>>1)&1 == 1:
+        # vertical flip
+        x = x[::-1, :, :].copy()
+    if aug_idx&1 == 1:
+        # horizontal flip
+        x = x[:, ::-1, :].copy()
+
+    return x
+
+
 def downsample_fn(x):
     # Downsample then interpolate
     h, w = x.shape[0:2]
