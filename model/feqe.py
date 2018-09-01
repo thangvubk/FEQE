@@ -1,15 +1,11 @@
-#! /usr/bin/python
-
 import time
 import tensorflow as tf
 import tensorlayer as tl
 from tensorlayer.layers import *
 import math
-from pixel_deshuffle import DeSubpixelConv2d
+from model.desubpixel import DeSubpixelConv2d
 import numpy as np
 import scipy.io
-
-IMAGE_MEAN = np.array([123.68 ,  116.779,  103.939])
 
 def init(in_feats, kernel_size=3):
     std = 1./math.sqrt(in_feats*(kernel_size**2))
@@ -173,7 +169,7 @@ def FEQE(t_bicubic, opt):
 
     #############Option Mutual Exclusive###############
     # body_type=resnet:         n_blocks is required
-    # body_type='res_in_res':   n _blocks and n_groups are required
+    # body_type='res_in_res':   n_blocks and n_groups are required
     # body_type='conv':         n_convs is required
     # body_type='squeeze':      n_squeezes is required
     
@@ -191,8 +187,6 @@ def FEQE(t_bicubic, opt):
     scale       = opt['scale']
 
     with tf.variable_scope('Generator') as vs:
-        # normalize input (0, 1) -> (-127.5, 127.5)
-        #t_image = (t_image - 0.5)*255
         x = InputLayer(t_bicubic, name='in')
         x = NormalizeLayer(x, 0.5, 255)
         g_skip = x
@@ -206,59 +200,12 @@ def FEQE(t_bicubic, opt):
         #=============Upsample==================
         x = upsample(x, n_feats, scale, conv_type, upsample_type)
 
-        #x = conv(x, n_feats, 3, act=None, conv_type=conv_type, name='global_res')
         x = ElementwiseLayer([x, g_skip], tf.add, name='add_global_res')
 
-        #outputs = x.outputs/255 + 0.5
         x = RestoreLayer(x, 0.5, 255)
         outputs = tf.clip_by_value(x.outputs, 0, 1)
 
         return outputs
 
-def _conv_layer(input, weights, bias):
-    conv = tf.nn.conv2d(input, tf.constant(weights), strides=(1, 1, 1, 1), padding='SAME')
-    return tf.nn.bias_add(conv, bias)
 
-def _pool_layer(input):
-    return tf.nn.max_pool(input, ksize=(1, 2, 2, 1), strides=(1, 2, 2, 1), padding='SAME')
-
-def vgg19(path_to_vgg_net, input_image):
-
-    layers = (
-        'conv1_1', 'relu1_1', 'conv1_2', 'relu1_2', 'pool1',
-
-        'conv2_1', 'relu2_1', 'conv2_2', 'relu2_2', 'pool2',
-
-        'conv3_1', 'relu3_1', 'conv3_2', 'relu3_2', 'conv3_3',
-        'relu3_3', 'conv3_4', 'relu3_4', 'pool3',
-
-        'conv4_1', 'relu4_1', 'conv4_2', 'relu4_2', 'conv4_3',
-        'relu4_3', 'conv4_4', 'relu4_4', 'pool4',
-
-        'conv5_1', 'relu5_1', 'conv5_2', 'relu5_2', 'conv5_3',
-        'relu5_3', 'conv5_4', 'relu5_4'
-    )
-
-    data = scipy.io.loadmat(path_to_vgg_net)
-    weights = data['layers'][0]
-
-    net = {}
-    current = input_image
-    for i, name in enumerate(layers):
-        layer_type = name[:4]
-        if layer_type == 'conv':
-            kernels, bias = weights[i][0][0][0][0]
-            kernels = np.transpose(kernels, (1, 0, 2, 3))
-            bias = bias.reshape(-1)
-            current = _conv_layer(current, kernels, bias)
-        elif layer_type == 'relu':
-            current = tf.nn.relu(current)
-        elif layer_type == 'pool':
-            current = _pool_layer(current)
-        net[name] = current
-
-    return net
-
-def preprocess(image):
-    return image - IMAGE_MEAN
 

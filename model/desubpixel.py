@@ -5,8 +5,8 @@ from tensorlayer.decorators import private_method
 class DeSubpixelConv2d(Layer):
     def __init__(self, prev_layer, scale=2, act=None, name='desubpixel_conv2d'):
         super(DeSubpixelConv2d, self).__init__(prev_layer=prev_layer, act=act, name=name)
-        # Assume the input have correct shape
 
+        # Assume the input have desired shape (width and height are divided by scale)
         with tf.variable_scope(name):
             self.outputs = self._apply_activation(self._PDS(self.inputs, r=scale))
         
