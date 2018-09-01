@@ -43,7 +43,14 @@ def downsample_fn(x, scale=4):
     x = imresize(x, size=[h, w], interp='bicubic', mode=None)
     return x
 
+def transpose(xs):
+    for i in range(len(xs)):
+        xs[i] = xs[i].transpose(2, 0, 1)
+    return xs
+
 def update_tensorboard(epoch, tb, img_idx, lr, sr, hr):
+    [lr, sr, hr] = transpose([lr, sr, hr])
+
     if epoch == 20: #first validation
         tb.add_image(str(img_idx) + '_LR', lr, 0)
         tb.add_image(str(img_idx) + '_HR', hr, 0)
