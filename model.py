@@ -33,6 +33,16 @@ class RestoreLayer(Layer):
 
         self.all_layers.append(self.outputs)
 
+class Bicubic(Layer):
+    def __init__(self,prev_layer, name='bicubic'):
+        Layer.__init__(self, prev_layer=prev_layer, name=name)
+        self.inputs = prev_layer.outputs
+
+        shape = tf.shape(self.inputs)
+        h, w = shape[1], shape[2]
+        self.outputs = tf.image.resize_images(self.inputs, [h//4, w//4], tf.image.ResizeMethod.BICUBIC)
+        self.all_layers.append(self.outputs)
+
 def conv(x, in_feats, out_feats, kernel_sizes=(3, 3), strides=(1, 1), act=None, conv_type='default', name='conv'):
     with tf.variable_scope(name):
         if conv_type == 'default':
@@ -53,7 +63,7 @@ def conv(x, in_feats, out_feats, kernel_sizes=(3, 3), strides=(1, 1), act=None, 
 
 def downsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel', name='downsample'):
     with tf.variable_scope(name):
-        if sample_type == 'subpixel':
+        if sample_type == 'desubpixel':
             assert scale == 2 or scale == 4
             if scale == 2:
                 x = conv(x, 3, n_feats//4, (1, 1), act=None, conv_type=conv_type, name='conv')
@@ -63,9 +73,20 @@ def downsample(x, n_feats, scale=4, conv_type='default', sample_type='subpixel',
                 x = conv(x, 12, n_feats//4, (1, 1), act=None, conv_type=conv_type, name='conv2')
                 x = DeSubpixelConv2d(x, 2, name='pixel_deshuffle2')
 
-        elif sample_type == 'deconv':
-            x = conv(x, 3, n_feats, strides=(2, 2), act=tf.nn.relu, name='conv1_stride2')
-            x = conv(x, n_feats, n_feats, strides=(2, 2), act=tf.nn.relu, name='conv2_stride2')
+        elif sample_type == 'conv_s2':
+            x = conv(x, 3, n_feats, (1, 1), strides=(2, 2), act=tf.nn.relu, name='conv1_stride2')
+            x = conv(x, n_feats, n_feats, (1, 1), strides=(2, 2), act=tf.nn.relu, name='conv2_stride2')
+
+        elif sample_type == 'bicubic':
+            x = RestoreLayer(x, 0.5, 255)
+            x = Bicubic(x)
+            x = NormalizeLayer(x, 0.5, 255)
+            x = conv(x, 3, n_feats, (1, 1), act=tf.nn.relu, name='conv1')
+
+        elif sample_type == 'pooling':
+            x = MaxPool2d(x, (2, 2))
+            x = conv(x, 12, n_feats, (1, 1), act=None, conv_type=conv_type, name='conv')
+            x = MaxPool2d(x, (2, 2))
 
         elif sample_type == 'none':
             x = conv(x, 3, n_feats, act=tf.nn.relu, name='conv')
@@ -148,9 +169,16 @@ def body(res, n_feats, n_groups, n_blocks, n_convs, n_squeezes, body_type='resne
         res = conv(res, n_feats, n_feats, act=None, conv_type=conv_type, name='res_lastconv')
     return res
 
-def SRGAN_g(t_bicubic, opt):
+def FEQE(t_bicubic, opt):
 
-    sample_type = opt['sample_type'] 
+    #############Option Mutual Exclusive###############
+    # body_type=resnet:         n_blocks is required
+    # body_type='res_in_res':   n _blocks and n_groups are required
+    # body_type='conv':         n_convs is required
+    # body_type='squeeze':      n_squeezes is required
+    
+    downsample_type = opt['downsample_type']
+    upsample_type = opt['upsample_type'] 
     conv_type   = opt['conv_type']
     body_type   = opt['body_type']
 
@@ -170,13 +198,13 @@ def SRGAN_g(t_bicubic, opt):
         g_skip = x
 
         #===========Downsample==============
-        x = downsample(x, n_feats, scale, conv_type, sample_type)
+        x = downsample(x, n_feats, scale, conv_type, downsample_type)
 
         #============Residual=================
         x = body(x, n_feats, n_groups, n_blocks, n_convs, n_squeezes, body_type, conv_type)
         
         #=============Upsample==================
-        x = upsample(x, n_feats, scale, conv_type, sample_type)
+        x = upsample(x, n_feats, scale, conv_type, upsample_type)
 
         #x = conv(x, n_feats, 3, act=None, conv_type=conv_type, name='global_res')
         x = ElementwiseLayer([x, g_skip], tf.add, name='add_global_res')
