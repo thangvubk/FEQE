@@ -1,13 +1,9 @@
-#! /usr/bin/python
-# -*- coding: utf8 -*-
-
 import os, time, pickle, random, time
 from datetime import datetime
 import numpy as np
 from time import localtime, strftime
 from model import *
 from utils import *
-from config import config, log_config
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 import argparse
@@ -84,7 +80,7 @@ def train():
         valid_hr_imgs = np.load(valid_hr_npy)
         valid_lr_imgs = np.load(valid_lr_npy)
     else:
-        print('Data bins is not created. Creating data bins...')
+        print('Data bin is not created. Creating data bin...')
         train_hr_img_list = sorted(tl.files.load_file_list(path=args.train_path, regx='.*.png', printable=False))
         valid_hr_img_list = sorted(tl.files.load_file_list(path=args.valid_path, regx='.*.png', printable=False))
         train_hr_imgs = np.array(tl.vis.read_images(train_hr_img_list, path=args.train_path, n_threads=32))
