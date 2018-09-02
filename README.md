@@ -41,7 +41,7 @@ Official implementation for Fast and Efficient Image Quality Enhancement via Des
 - Download [pretrained VGG](https://drive.google.com/file/d/1KLZOwxW0KpQxRwwUepVYEi147UG9IRIx/view?usp=sharing) used for VGG loss
     
 ### Paper results
-- Download [paper results]() in images of the test datasets
+- Download [paper results](https://drive.google.com/file/d/1KMpp_6Rp4XmRCQxdRIRpC1XdBLS4WrcS/view?usp=sharing) (images) of the test datasets
 
 ## Project layout (recommended)
 ```
@@ -107,7 +107,3 @@ FEQE/
 <p align="center">
     Qualitative comparison
 </p>
-
-## References
-- [EDSR-pytorch](https://github.com/thstkdgus35/EDSR-PyTorch)
-- [Relativistic-GAN](https://github.com/AlexiaJM/RelativisticGAN)
