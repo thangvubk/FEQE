@@ -93,7 +93,6 @@ FEQE/
 3. Test perceptual quality: refer to [PIRM validation code](https://github.com/roimehrez/PIRM2018)
 
 ## Quantitative and Qualitative results
-<p> RED and BLUE indicate best and second best respectively.</p>
 <p align="center">
     <img src="https://github.com/thangvubk/FEQE/blob/master/docs/quan.PNG">
 </p> 
