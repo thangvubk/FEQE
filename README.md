@@ -35,7 +35,7 @@ Official implementation for Fast and Efficient Image Quality Enhancement via Des
 - ``tensorlayer 1.9+``
 - ``tensorboardX 1.4+``
 
-## Download Datasets, models, and results
+## Download datasets, models, and results
 ### Dataset
 - Train: DIV2K (800 2K-resolution images)
 - Valid: DIV2K (9 val images)
