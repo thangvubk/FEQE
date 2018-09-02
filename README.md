@@ -1,5 +1,26 @@
 # FEQE
 Official implementation for Fast and Efficient Image Quality Enhancement via Desubpixel Convolutional Neural Networks
+
+<p align="center">
+    <img src="https://github.com/thangvubk/FEQE/blob/master/docs/P_results.PNG">
+</p> 
+<p align="center">
+    Comparison of proposed FEQE with other state-of-the-art super-resolution and enhancement methods
+</p>
+<p align="center">
+    <img src="https://github.com/thangvubk/FEQE/blob/master/docs/net.PNG">
+</p> 
+<p align="center">
+    Network architecture
+</p>
+<p align="center">
+    <img src="https://github.com/thangvubk/FEQE/blob/master/docs/sub-des.PNG">
+</p> 
+<p align="center">
+    Proposed desubpixel
+</p>
+
+
 ## Dependencies
 - 1 Nvidia GPU (4h training on Titan Xp)
 - ``Python3``
@@ -39,36 +60,52 @@ FEQE/
     └── imagenet-vgg-verydeep-19.mat
 ```
 ## Quick start
-- Download [test only](https://drive.google.com/file/d/1bch29fFj5t7IwoNjceuK8lFM6-ivwrP5/view?usp=sharing) dataset dataset and put into ``data/`` directory
-- Download [pretrained models](https://drive.google.com/file/d/1ok7-Y0Ldbyi9Ii0Cm3wTzMx8vPvt6zIR/view?usp=sharing) and put into ``checkpoint/`` directory
-- Run ``python test.py --dataset <DATASET_NAME>``
-- Results will be saved into ``results/`` directory
+1. Download [test only](https://drive.google.com/file/d/1bch29fFj5t7IwoNjceuK8lFM6-ivwrP5/view?usp=sharing) dataset dataset and put into ``data/`` directory
+2. Download [pretrained models](https://drive.google.com/file/d/1ok7-Y0Ldbyi9Ii0Cm3wTzMx8vPvt6zIR/view?usp=sharing) and put into ``checkpoint/`` directory
+3. Run ``python test.py --dataset <DATASET_NAME>``
+4. Results will be saved into ``results/`` directory
 
 ## Training
-- Download [train+val+test](https://drive.google.com/file/d/1dyL6KxaBI8Aq7E3AnuIK-RODkqXUAfcF/view?usp=sharing) datasets dataset and put into ``data/`` directory
-- Download [pretrained VGG](https://drive.google.com/file/d/1KLZOwxW0KpQxRwwUepVYEi147UG9IRIx/view?usp=sharing) and put into ``vgg_pretrained/`` directory
-- Pretrain with MSE loss on scale 2: ``python train.py --checkpoint checkpoint/mse_s2 --alpha_vgg 0 --scale 2 --phase pretrain``
-- Finetune with MSE loss on scale 4 (FEQE-P): ``python main.py --checkpoint checkpoint/mse_s4 --alpha_vgg 0 --pretrained_model checkpoint_test/mse_s2/model.ckpt``
-- Finetune with full loss on scale 4: ``python main.py --checkpoint checkpoint/full_s4 ---pretrained_model checkpoint_test/mse_s4/model.ckpt``
-- All Models with be saved into ``checkpoint/`` direcory
+1. Download [train+val+test](https://drive.google.com/file/d/1dyL6KxaBI8Aq7E3AnuIK-RODkqXUAfcF/view?usp=sharing) datasets dataset and put into ``data/`` directory
+2. Download [pretrained VGG](https://drive.google.com/file/d/1KLZOwxW0KpQxRwwUepVYEi147UG9IRIx/view?usp=sharing) and put into ``vgg_pretrained/`` directory
+3. Pretrain with MSE loss on scale 2: ``python train.py --checkpoint checkpoint/mse_s2 --alpha_vgg 0 --scale 2 --phase pretrain``
+4. Finetune with MSE loss on scale 4 (FEQE-P): ``python main.py --checkpoint checkpoint/mse_s4 --alpha_vgg 0 --pretrained_model checkpoint_test/mse_s2/model.ckpt``
+5. Finetune with full loss on scale 4: ``python main.py --checkpoint checkpoint/full_s4 ---pretrained_model checkpoint_test/mse_s4/model.ckpt``
+6. All Models with be saved into ``checkpoint/`` direcory
 
 ## Visualization
-- Start tensorboard: ``tensorboard --logdir checkpoint``
-- Enter: ``YOUR_IP:6006`` to your web browser.
-- Result ranges should be similar to:
+1. Start tensorboard: ``tensorboard --logdir checkpoint``
+2. Enter: ``YOUR_IP:6006`` to your web browser.
+3. Result ranges should be similar to:
 
 ![Tensorboard](https://github.com/thangvubk/PESR/blob/master/docs/tensorboard.PNG)
 
 ## Comprehensive testing
-- Test FEQE model (defaults): follow [Quick start](#quick-start)
-- Test FEQE-P model: ``python test.py --dataset <DATASET> --model_path <FEQE-P path>``
-- Test perceptual quality: refer to [PIRM validation code](https://github.com/roimehrez/PIRM2018)
+1. Test FEQE model (defaults): follow [Quick start](#quick-start)
+2. Test FEQE-P model: ``python test.py --dataset <DATASET> --model_path <FEQE-P path>``
+3. Test perceptual quality: refer to [PIRM validation code](https://github.com/roimehrez/PIRM2018)
 
 ## Quantitative and Qualitative results
 <p> RED and BLUE indicate best and second best respectively.</p>
 <p align="center">
-    <img src="https://github.com/thangvubk/PESR/blob/master/docs/quantitative.PNG">
-    <img width="800" height="1200", src="https://github.com/thangvubk/PESR/blob/master/docs/qualitative.PNG">
+    <img src="https://github.com/thangvubk/FEQE/blob/master/docs/quan.PNG">
+</p> 
+<p align="center">
+    PSNR/SSIM/Perceptual-Index comparison. Red indicates the best results
+</p>
+
+<p align="center">
+    <img src="https://github.com/thangvubk/FEQE/blob/master/docs/time.PNG">
+</p> 
+<p align="center">
+    Running time comparison. Red indicates the best results
+</p>
+
+<p align="center">
+    <img src="https://github.com/thangvubk/FEQE/blob/master/docs/qual.PNG">
+</p> 
+<p align="center">
+    Qualitative comparison
 </p>
 
 ## References
