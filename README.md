@@ -1,6 +1,5 @@
 # FEQE
 Official implementation for Fast and Efficient Image Quality Enhancement via Desubpixel Convolutional Neural Networks
-
 <p align="center">
     <img src="https://github.com/thangvubk/FEQE/blob/master/docs/P_results.PNG">
 </p> 
@@ -20,6 +19,14 @@ Official implementation for Fast and Efficient Image Quality Enhancement via Des
     Proposed desubpixel
 </p>
 
+## PIRM 2018 challenge results (super-resolution on mobile devices task)
+
+<p align="center">
+    <img src="https://github.com/thangvubk/FEQE/blob/master/docs/PIRM.PNG">
+</p> 
+<p align="center">
+    TEAM_ALEX placed the first in overall benchmark score. Refer to <a href="http://ai-benchmark.com/challenge.html">PIRM 2018</a> for details.
+</p>
 
 ## Dependencies
 - 1 Nvidia GPU (4h training on Titan Xp)
