@@ -22,22 +22,38 @@ Official implementation for Fast and Efficient Image Quality Enhancement via Des
 ### Paper results
 - Download [paper results]() in images of the test datasets
 
+## Project layout (recommended)
+```
+FEQE/
+├── checkpoint
+│   ├── FEQE
+│   └── FEQE-P
+├── data
+│   ├── DIV2K_train_HR
+│   ├── DIV2K_valid_HR_9
+│   └── test_benchmark
+├── docs
+├── model
+├── results
+└── vgg_pretrained
+    └── imagenet-vgg-verydeep-19.mat
+```
 ## Quick start
-- Download [test only](https://drive.google.com/file/d/1bch29fFj5t7IwoNjceuK8lFM6-ivwrP5/view?usp=sharing) dataset dataset and put into ``data/origin/`` directory
+- Download [test only](https://drive.google.com/file/d/1bch29fFj5t7IwoNjceuK8lFM6-ivwrP5/view?usp=sharing) dataset dataset and put into ``data/`` directory
 - Download [pretrained models](https://drive.google.com/file/d/1ok7-Y0Ldbyi9Ii0Cm3wTzMx8vPvt6zIR/view?usp=sharing) and put into ``checkpoint/`` directory
 - Run ``python test.py --dataset <DATASET_NAME>``
 - Results will be saved into ``results/`` directory
 
 ## Training
-- Download [train+val+test](https://drive.google.com/file/d/1dyL6KxaBI8Aq7E3AnuIK-RODkqXUAfcF/view?usp=sharing) datasets dataset and put into ``data/origin/`` directory
-- Download [pretrained VGG](https://drive.google.com/file/d/1KLZOwxW0KpQxRwwUepVYEi147UG9IRIx/view?usp=sharing) and put into ``pretrained_vgg/`` directory
+- Download [train+val+test](https://drive.google.com/file/d/1dyL6KxaBI8Aq7E3AnuIK-RODkqXUAfcF/view?usp=sharing) datasets dataset and put into ``data/`` directory
+- Download [pretrained VGG](https://drive.google.com/file/d/1KLZOwxW0KpQxRwwUepVYEi147UG9IRIx/view?usp=sharing) and put into ``vgg_pretrained/`` directory
 - Pretrain with MSE loss on scale 2: ``python train.py --checkpoint checkpoint/mse_s2 --alpha_vgg 0 --scale 2 --phase pretrain``
 - Finetune with MSE loss on scale 4 (FEQE-P): ``python main.py --checkpoint checkpoint/mse_s4 --alpha_vgg 0 --pretrained_model checkpoint_test/mse_s2/model.ckpt``
 - Finetune with full loss on scale 4: ``python main.py --checkpoint checkpoint/full_s4 ---pretrained_model checkpoint_test/mse_s4/model.ckpt``
-- All Models with be saved into ``check_point/`` direcory
+- All Models with be saved into ``checkpoint/`` direcory
 
 ## Visualization
-- Start tensorboard: ``tensorboard --logdir check_point``
+- Start tensorboard: ``tensorboard --logdir checkpoint``
 - Enter: ``YOUR_IP:6006`` to your web browser.
 - Result ranges should be similar to:
 
