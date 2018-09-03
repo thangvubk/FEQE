@@ -85,7 +85,7 @@ FEQE/
 2. Enter: ``YOUR_IP:6006`` to your web browser.
 3. Result ranges should be similar to:
 
-![Tensorboard](https://github.com/thangvubk/PESR/blob/master/docs/tensorboard.PNG)
+![Tensorboard](https://github.com/thangvubk/FEQE/blob/master/docs/tensorboard.gif)
 
 ## Comprehensive testing
 1. Test FEQE model (defaults): follow [Quick start](#quick-start)
