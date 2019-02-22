@@ -1,5 +1,17 @@
 # FEQE
-Official implementation for Fast and Efficient Image Quality Enhancement via Desubpixel Convolutional Neural Networks
+Official implementation for [Fast and Efficient Image Quality Enhancement via Desubpixel Convolutional Neural Networks](http://openaccess.thecvf.com/content_ECCVW_2018/papers/11133/Vu_Fast_and_Efficient_Image_Quality_Enhancement_via_Desubpixel_Convolutional_Neural_ECCVW_2018_paper.pdf)
+## Citation
+Please cite our project if it is helpful for your research
+```
+@InProceedings{Vu_2018_ECCV_Workshops},
+author = {Vu, Thang and Van Nguyen, Cao and Pham, Trung X. and Luu, Tung M. and Yoo, Chang D.},
+title = {Fast and Efficient Image Quality Enhancement via Desubpixel Convolutional Neural Networks},
+booktitle = {The European Conference on Computer Vision (ECCV) Workshops},
+month = {September},
+year = {2018}
+}
+```
+
 <p align="center">
     <img src="https://github.com/thangvubk/FEQE/blob/master/docs/P_results.PNG">
 </p> 
@@ -18,6 +30,8 @@ Official implementation for Fast and Efficient Image Quality Enhancement via Des
 <p align="center">
     Proposed desubpixel
 </p>
+
+
 
 ## PIRM 2018 challenge results (super-resolution on mobile devices task)
 
