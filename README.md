@@ -1,5 +1,5 @@
 # FEQE
-Official implementation for [Fast and Efficient Image Quality Enhancement via Desubpixel Convolutional Neural Networks](http://openaccess.thecvf.com/content_ECCVW_2018/papers/11133/Vu_Fast_and_Efficient_Image_Quality_Enhancement_via_Desubpixel_Convolutional_Neural_ECCVW_2018_paper.pdf)
+Official implementation for [Fast and Efficient Image Quality Enhancement via Desubpixel Convolutional Neural Networks](http://openaccess.thecvf.com/content_ECCVW_2018/papers/11133/Vu_Fast_and_Efficient_Image_Quality_Enhancement_via_Desubpixel_Convolutional_Neural_ECCVW_2018_paper.pdf), ECCV workshop 2018
 ## Citation
 Please cite our project if it is helpful for your research
 ```
